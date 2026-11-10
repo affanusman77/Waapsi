@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/* Fallback values match src/config/brand.ts; applyBrandTheme() overrides them at boot. */
+:root {
+  --brand-cream: #FBF6EE;
+  --brand-sand: #F3E8D6;
+  --brand-sand-deep: #E6D5BA;
+  --brand-ink: #1E2A32;
+  --brand-ink-soft: #56636B;
+  --brand-terracotta: #B4532A;
+  --brand-terracotta-deep: #93411F;
+  --brand-reunited: #1F7A6D;
+  --brand-reunited-soft: #D7EDE8;
+  --brand-danger: #B42318;
+  --brand-danger-soft: #FBE3E0;
+}
+
+@theme inline {
+  --color-cream: var(--brand-cream);
+  --color-sand: var(--brand-sand);
+  --color-sand-deep: var(--brand-sand-deep);
+  --color-ink: var(--brand-ink);
+  --color-ink-soft: var(--brand-ink-soft);
+  --color-terracotta: var(--brand-terracotta);
+  --color-terracotta-deep: var(--brand-terracotta-deep);
+  --color-reunited: var(--brand-reunited);
+  --color-reunited-soft: var(--brand-reunited-soft);
+  --color-danger: var(--brand-danger);
+  --color-danger-soft: var(--brand-danger-soft);
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-urdu: "Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", serif;
+}
+
+html,
+body {
+  background: var(--brand-cream);
+  color: var(--brand-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Urdu: Nastaliq needs a bigger size and generous line height to stay legible. */
+:root[lang="ur"] body {
+  font-family: var(--font-urdu);
+  font-size: 18px;
+  line-height: 2.1;
+}
+/* Unlayered, so it beats Tailwind's tight heading line-heights, which clip Nastaliq. */
+:root[lang="ur"] :is(h1, h2, h3) {
+  line-height: 1.9;
+}
+.font-urdu {
+  font-family: var(--font-urdu);
+  line-height: 2.1;
+}
+
+:focus-visible {
+  outline: 3px solid var(--brand-terracotta);
+  outline-offset: 2px;
+}
+
+.leaflet-container {
+  font-family: var(--font-sans);
+}
+
+/* "Reunited" moment: a soft warm glow behind the tick (spec section 13). */
+.reunited-glow::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(circle at 50% 35%, rgb(255 214 153 / 0.75), transparent 55%);
+  animation: reunited-glow 3.2s ease-in-out infinite alternate;
+}
+@keyframes reunited-glow {
+  from { opacity: 0.45; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1.05); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
