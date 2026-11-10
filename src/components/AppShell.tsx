@@ -15,8 +15,8 @@ export function AppShell() {
 
   return (
     <div className="min-h-dvh flex flex-col">
-      <header className="sticky top-0 z-[1000] bg-cream/95 backdrop-blur border-b border-sand-deep">
-        <div className={`mx-auto flex items-center gap-2 px-4 h-14 ${wide ? 'max-w-7xl' : 'max-w-xl'}`}>
+      <header className="sticky top-0 z-[1000] border-b border-sand-deep bg-cream/95 pt-[env(safe-area-inset-top)] backdrop-blur">
+        <div className={`mx-auto flex h-16 items-center gap-2 ps-[max(1rem,env(safe-area-inset-left))] pe-[max(1rem,env(safe-area-inset-right))] ${wide ? 'max-w-7xl' : 'max-w-xl'}`}>
           {!isHome && (
             <button
               type="button"
@@ -27,7 +27,8 @@ export function AppShell() {
               <BackIcon className="size-6" aria-hidden />
             </button>
           )}
-          <Link to="/" className="flex items-baseline gap-2 font-bold text-lg tracking-tight">
+          <Link to="/" className="flex items-center gap-2.5 text-lg font-bold tracking-tight">
+            <img src="/brand/logo.png" alt="" width={36} height={36} className="size-9 shrink-0" />
             <span>{lang === 'ur' ? brand.nameUr : brand.name}</span>
             <span className="text-sm font-medium text-ink-soft hidden sm:inline">
               {lang === 'ur' ? brand.taglineUr : brand.tagline}
@@ -37,14 +38,14 @@ export function AppShell() {
             type="button"
             onClick={toggleLang}
             className="ms-auto inline-flex h-11 items-center gap-2 rounded-full border border-sand-deep px-4 font-semibold hover:bg-sand"
-            aria-label={t('common.switchLanguageLabel')}
           >
             <Languages className="size-5" aria-hidden />
-            <span className={lang === 'en' ? 'font-urdu text-base leading-none' : ''}>{t('common.switchLanguage')}</span>
+            <span lang={lang === 'en' ? 'ur' : 'en'} className={lang === 'en' ? 'font-urdu text-base leading-none' : 'font-sans leading-none'}>{t('common.switchLanguage')}</span>
+            <span className="sr-only">{t('common.switchLanguageLabel')}</span>
           </button>
         </div>
       </header>
-      <main className={`mx-auto w-full flex-1 px-4 py-6 ${wide ? 'max-w-7xl' : 'max-w-xl'}`}>
+      <main className={`mx-auto w-full flex-1 ps-[max(1rem,env(safe-area-inset-left))] pe-[max(1rem,env(safe-area-inset-right))] pt-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] ${wide ? 'max-w-7xl' : 'max-w-xl'}`}>
         <Outlet />
       </main>
     </div>

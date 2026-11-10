@@ -22,8 +22,10 @@ export const colors = {
   cream: '#FBF6EE', // page background
   sand: '#F3E8D6', // cards
   sandDeep: '#E6D5BA', // borders, dividers
-  ink: '#1E2A32', // body text
-  inkSoft: '#56636B', // secondary text (5.9:1 on cream)
+  ink: '#2A1B16', // body text, warm brown to sit with the diya logo (15.4:1 on cream)
+  inkSoft: '#665449', // secondary text (6.7:1 on cream, 5.0:1 on sand-deep)
+  maroon: '#2A0B08', // logo disc
+  tan: '#D8BF98', // logo flame and bowl (10.3:1 on maroon)
   terracotta: '#B4532A', // primary action (5.0:1 with white text)
   terracottaDeep: '#93411F', // primary pressed
   reunited: '#1F7A6D', // calm teal: "Reunited" only

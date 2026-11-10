@@ -5,8 +5,10 @@
   --brand-cream: #FBF6EE;
   --brand-sand: #F3E8D6;
   --brand-sand-deep: #E6D5BA;
-  --brand-ink: #1E2A32;
-  --brand-ink-soft: #56636B;
+  --brand-ink: #2A1B16;
+  --brand-ink-soft: #665449;
+  --brand-maroon: #2A0B08;
+  --brand-tan: #D8BF98;
   --brand-terracotta: #B4532A;
   --brand-terracotta-deep: #93411F;
   --brand-reunited: #1F7A6D;
@@ -21,6 +23,8 @@
   --color-sand-deep: var(--brand-sand-deep);
   --color-ink: var(--brand-ink);
   --color-ink-soft: var(--brand-ink-soft);
+  --color-maroon: var(--brand-maroon);
+  --color-tan: var(--brand-tan);
   --color-terracotta: var(--brand-terracotta);
   --color-terracotta-deep: var(--brand-terracotta-deep);
   --color-reunited: var(--brand-reunited);

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { KeyRound, Phone } from 'lucide-react'
 import { Button } from './Button'
-import { Notice } from './ui'
+import { Notice, PageHeader } from './ui'
 import { useI18n } from '../i18n'
 import { useSession } from '../lib/session'
 import { errorKey } from '../lib/api'
@@ -41,6 +41,7 @@ export function PhoneLogin({ roleHint = 'finder', demoAccounts = [] }: { roleHin
 
   return (
     <form onSubmit={submit} className="space-y-4">
+      <PageHeader title={t('login.title')} lead={t('login.lead')} />
       {step === 'phone' ? (
         <label className="block">
           <span className="mb-2 block text-lg font-semibold">{t('login.phoneLabel')}</span>

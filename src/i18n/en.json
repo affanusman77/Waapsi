@@ -28,7 +28,9 @@
     "changeNumber": "Change number",
     "demoAccounts": "Demo accounts",
     "wrongRole": "You're signed in as {role}. This screen is for a different role.",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "title": "Sign in",
+    "lead": "We use your phone number so the safe point and police can reach you."
   },
   "errors": {
     "invalid_phone": "Enter a Pakistani mobile number, like 0300 1234567.",
@@ -468,5 +470,11 @@
     "location_approx": "Approx. location",
     "verification_failed": "Failed verification",
     "contact_share_attempt": "Tried to share a number"
+  },
+  "install": {
+    "title": "Add Wapsi to your phone",
+    "lead": "Opens full screen, one tap from your home screen.",
+    "button": "Install",
+    "ios": "On iPhone: tap Share, then Add to Home Screen."
   }
 }

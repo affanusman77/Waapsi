@@ -71,7 +71,7 @@ export function Chat({ matchId, open = true }: { matchId: string; open?: boolean
             <li key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
               <span className={`max-w-[80%] rounded-2xl px-4 py-2 ${mine ? 'bg-terracotta text-white' : 'bg-sand'}`}>
                 {m.body}
-                <time className={`mt-1 block text-xs ${mine ? 'text-white/80' : 'text-ink-soft'}`}>
+                <time className={`mt-1 block text-xs ${mine ? 'text-white' : 'text-ink-soft'}`}>
                   {new Date(m.created_at).toLocaleTimeString(lang === 'ur' ? 'ur-PK' : 'en-GB', { hour: '2-digit', minute: '2-digit' })}
                 </time>
               </span>
