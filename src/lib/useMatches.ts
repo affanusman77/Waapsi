@@ -2,7 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from './supabase'
 import type { Clothing } from './useLiveCase'
 
-export type Reason = { factor: string; score: number; text_en: string; text_ur: string }
+export type Reason = {
+  factor: string
+  score: number
+  text_en: string
+  text_ur: string
+  /** Only on the `face` reason: alike | some | different | unclear | no_photo | error */
+  status?: string
+}
 
 export type FinderMatch = {
   match_id: string
@@ -55,6 +62,8 @@ function useView<T>(view: 'finder_match_view' | 'parent_match_view', column: str
     const ch = supabase
       .channel(`${view}-${key.slice(0, 40)}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cases' }, () => void load())
+      // The face check lands on the match row a moment after it is suggested.
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches' }, () => void load())
       .subscribe()
     return () => {
       void supabase.removeChannel(ch)

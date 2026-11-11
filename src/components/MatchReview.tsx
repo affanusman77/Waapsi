@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ImageOff, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { ImageOff, ScanFace, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { Button } from './Button'
 import { Notice } from './ui'
 import { CasePhoto } from './CaseBits'
@@ -38,6 +38,8 @@ export function MatchReview({ m, showChildPhoto = false, onDecided }: { m: Finde
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const strong = m.score >= 0.8
+  // Face check (AWS Rekognition): a hint for the person deciding, never part of the score.
+  const face = m.reasons.find((r) => r.factor === 'face')
 
   async function decide(decision: 'confirm' | 'reject') {
     setBusy(decision)
@@ -81,13 +83,23 @@ export function MatchReview({ m, showChildPhoto = false, onDecided }: { m: Finde
           .join(' · ')}
       </p>
       <ul className="space-y-1">
-        {m.reasons.map((r) => (
+        {m.reasons.filter((r) => r.factor !== 'face').map((r) => (
           <li key={r.factor} className="flex items-center gap-2">
             <span className={`size-2.5 shrink-0 rounded-full ${r.score >= 0.75 ? 'bg-terracotta' : r.score >= 0.4 ? 'bg-ink-soft' : 'bg-sand-deep'}`} aria-hidden />
             <span>{lang === 'ur' ? r.text_ur : r.text_en}</span>
           </li>
         ))}
       </ul>
+      {face && (
+        <p
+          className={`flex items-start gap-2 rounded-xl border px-3 py-2 ${
+            face.status === 'alike' ? 'border-terracotta' : face.status === 'different' || face.status === 'unclear' ? 'border-ink-soft font-semibold' : 'border-sand-deep'
+          }`}
+        >
+          <ScanFace className="mt-0.5 size-5 shrink-0" aria-hidden />
+          <span>{lang === 'ur' ? face.text_ur : face.text_en}</span>
+        </p>
+      )}
       <p className="text-sm text-ink-soft">{t('match.aiSuggests')}</p>
 
       {m.match_status === 'suggested' && (

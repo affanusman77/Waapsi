@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, CircleCheck, Footprints, Hand, Keyboard, MapPin,
 import { Button } from '../../components/Button'
 import { PhotoCapture } from '../../components/PhotoCapture'
 import { VoiceRecorder } from '../../components/VoiceRecorder'
+import { VoiceSummary } from '../../components/VoiceSummary'
 import { RequireRole, SignedInAs } from '../../components/RequireRole'
 import { Notice, PageHeader, ProgressDots } from '../../components/ui'
 import type { PickedLocation } from '../../components/LocationPicker'
@@ -196,7 +197,10 @@ function FinderFlow() {
         <section className="space-y-6">
           <PageHeader title={t('finder.voice.title')} lead={t('finder.voice.lead')} />
           {!typing ? (
-            <VoiceRecorder value={voice} onChange={onVoice} />
+            <>
+              <VoiceRecorder value={voice} onChange={onVoice} />
+              <VoiceSummary voice={voice} kind="found" getPath={() => uploads.current.voice ?? Promise.resolve(null)} />
+            </>
           ) : (
             <textarea
               value={text}

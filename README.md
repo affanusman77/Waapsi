@@ -37,6 +37,10 @@ WhatsApp alerts (Twilio): `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHA
 for the sandbox). Police numbers live in `app_settings.police_whatsapp`, and the link base in `app_settings.app_url`.
 Without the Twilio secrets, messages are only written to the audit log (`notify.whatsapp`).
 
+Face check on suggested matches (AWS Rekognition): `REKOGNITION_ACCESS_KEY_ID`, `REKOGNITION_SECRET_ACCESS_KEY`,
+`REKOGNITION_REGION` (default `ap-southeast-2`). Use an IAM user allowed only `rekognition:DetectFaces` and
+`rekognition:CompareFaces`. Without these the check is off and nothing is shown.
+
 ### Testing against the live project
 
 ```bash

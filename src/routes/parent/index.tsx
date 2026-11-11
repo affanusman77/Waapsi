@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { ArrowLeft, ArrowRight, Baby, Camera, ImagePlus, MapPin, Search, Send, Trash2, UserPlus } from 'lucide-react'
 import { Button } from '../../components/Button'
@@ -7,6 +7,7 @@ import { Notice, PageHeader, ProgressDots } from '../../components/ui'
 import { StatusChip } from '../../components/CaseBits'
 import { ColourPicker } from '../../components/CaseCard'
 import { VoiceRecorder } from '../../components/VoiceRecorder'
+import { VoiceSummary } from '../../components/VoiceSummary'
 import { Chat } from '../../components/Chat'
 import { ReunitedMoment } from '../../components/Reunited'
 import type { PickedLocation } from '../../components/LocationPicker'
@@ -150,6 +151,14 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
   const BackIcon = dir === 'rtl' ? ArrowRight : ArrowLeft
   const steps: ReportStep[] = ['photo', 'details', 'voice', 'where']
 
+  // Upload the voice note once: "Summarise with AI" and the final submit share the same upload.
+  const voiceUpload = useRef<{ blob: Blob; path: Promise<string> } | null>(null)
+  const uploadVoice = useCallback((): Promise<string | null> => {
+    if (!voice) return Promise.resolve(null)
+    if (voiceUpload.current?.blob !== voice) voiceUpload.current = { blob: voice, path: uploadMedia('voice-notes', voice) }
+    return voiceUpload.current.path
+  }, [voice])
+
   useEffect(() => {
     if (!childId) return
     void supabase.from('children').select('*').eq('id', childId).maybeSingle().then(({ data }) => {
@@ -174,7 +183,7 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
     setBusy(true)
     setError(null)
     try {
-      const [photo_path, voice_path] = await Promise.all([photo ? uploadMedia('case-photos', photo) : null, voice ? uploadMedia('voice-notes', voice) : null])
+      const [photo_path, voice_path] = await Promise.all([photo ? uploadMedia('case-photos', photo) : null, uploadVoice()])
       const r = await callFn<{ case: { id: string } }>('create-case', {
         kind: 'lost',
         fields: {
@@ -258,6 +267,7 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
         <>
           <PageHeader title={t('parent.report.voiceTitle')} lead={t('parent.report.voiceLead')} />
           <VoiceRecorder value={voice} onChange={setVoice} />
+          <VoiceSummary voice={voice} kind="lost" getPath={uploadVoice} />
           <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => setStep('where')}>
             {voice ? t('common.next') : t('finder.voice.skip')}
           </Button>

@@ -9,6 +9,8 @@ import { normName, scoreMatch, SUGGEST_THRESHOLD, type MatchableCase } from './m
 import { EXTRACT_SYSTEM, extractUser } from './prompts.ts'
 import { canTransition, transition, type CaseKind, type CaseStatus } from './state.ts'
 import { supabaseStore } from './store.ts'
+import { checkFaces } from './face-check.ts'
+import { keepFaceReason } from './face.ts'
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined
 
@@ -171,7 +173,7 @@ export async function runMatching(admin: SupabaseClient, caseId: string): Promis
 
     const { data: existing } = await admin
       .from('matches')
-      .select('id, status, score')
+      .select('id, status, score, reasons')
       .eq('found_case_id', f.id)
       .eq('lost_case_id', l.id)
       .maybeSingle()
@@ -187,8 +189,11 @@ export async function runMatching(admin: SupabaseClient, caseId: string): Promis
       if (error) continue // lost a race with a parallel run: fine
       matchId = ins.id
       await audit(admin, { action: 'match.suggested', actor: { type: 'ai' }, caseId: f.id, matchId, payload: { score: r.score, strong: r.strong, lost_case_id: l.id } })
+      // Face check runs only now that a match is suggested, and before the finder is told, so the
+      // hint is there when they look. Bounded by AWS timeouts; failures just show "unavailable".
+      await checkFaces(admin, ins.id)
     } else if (Math.abs(Number(existing.score) - r.score) > 0.001) {
-      await admin.from('matches').update({ score: r.score, reasons: r.reasons }).eq('id', existing.id)
+      await admin.from('matches').update({ score: r.score, reasons: keepFaceReason(r.reasons, existing.reasons) }).eq('id', existing.id)
     }
     suggested++
     await applyMatchTransitions(admin, f.id, l.id, matchId!)

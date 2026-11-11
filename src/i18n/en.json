@@ -476,5 +476,16 @@
     "lead": "Opens full screen, one tap from your home screen.",
     "button": "Install",
     "ios": "On iPhone: tap Share, then Add to Home Screen."
+  },
+  "voiceSummary": {
+    "button": "Summarise with AI",
+    "title": "AI summary",
+    "heard": "What the AI heard",
+    "check": "Check this is right. You can record again if not.",
+    "status_partial": "We heard the voice note but could not write a summary. You can still continue.",
+    "status_empty": "The voice note sounded empty. Try recording again, closer to the phone.",
+    "status_off": "AI summaries are not switched on yet. Your voice note is still sent with the report.",
+    "status_failed": "The AI could not read this voice note. Your voice note is still sent with the report.",
+    "status_ok": ""
   }
 }
