@@ -1,6 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
+// Accept the project URL even if it was pasted with the REST path (".../rest/v1/") or a trailing slash:
+// supabase-js adds /rest/v1, /functions/v1, /storage/v1 itself, so those must not be doubled.
+const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined)
+  ?.trim()
+  .replace(/\/+$/, '')
+  .replace(/\/(rest|auth|functions|storage|realtime)\/v1$/, '')
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 export const supabaseConfigured = Boolean(url && anonKey)
