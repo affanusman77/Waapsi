@@ -94,7 +94,9 @@
     "recording": "Recording… {s}s",
     "redo": "Record again",
     "denied": "Microphone blocked. Allow it in your browser, or type instead.",
-    "unsupported": "This browser can't record audio. Please type instead."
+    "unsupported": "This browser can't record audio. Please type instead.",
+    "tooShort": "That was too short. Hold the button and speak for a few seconds.",
+    "silent": "We couldn't hear anything. Check the microphone and speak close to the phone."
   },
   "location": {
     "locating": "Finding your location…",
@@ -110,7 +112,6 @@
       "wrist": "Number on the wrist? Photo it"
     },
     "about": {
-      "title": "About the child",
       "gender": "Boy or girl?",
       "male": "Boy",
       "female": "Girl",
@@ -126,8 +127,7 @@
       "lead": "What is the child saying? Their name, their father's name, where they live. Speak in any language.",
       "typePlaceholder": "e.g. Says her name is Ayesha, father Raza, lives near Hussain Agahi…",
       "typeInstead": "Type instead",
-      "recordInstead": "Record a voice note instead",
-      "skip": "Skip for now"
+      "recordInstead": "Record a voice note instead"
     },
     "location": {
       "title": "Where did you find the child?",
@@ -477,15 +477,34 @@
     "button": "Install",
     "ios": "On iPhone: tap Share, then Add to Home Screen."
   },
-  "voiceSummary": {
-    "button": "Summarise with AI",
-    "title": "AI summary",
+  "autofill": {
+    "fillForm": "Fill the form with AI",
+    "fillMyself": "Fill in the details myself",
+    "working": "AI is listening and filling in the details…",
+    "reviewTitle": "Check the details",
+    "reviewLead": "AI filled this in from what you said. Fix anything that's wrong, then continue.",
+    "manualLead": "Fill in what you know. Boy or girl and age are needed.",
+    "summaryTitle": "What the AI understood",
     "heard": "What the AI heard",
-    "check": "Check this is right. You can record again if not.",
-    "status_partial": "We heard the voice note but could not write a summary. You can still continue.",
-    "status_empty": "The voice note sounded empty. Try recording again, closer to the phone.",
-    "status_off": "AI summaries are not switched on yet. Your voice note is still sent with the report.",
-    "status_failed": "The AI could not read this voice note. Your voice note is still sent with the report.",
-    "status_ok": ""
+    "badge": "Filled by AI",
+    "noSpeech": "We couldn't hear anyone speaking in that recording. Record again, close to the phone, or type instead.",
+    "unclear": "The AI couldn't find details about a child in that. Please fill them in below.",
+    "partial": "AI filled in only some details. Please check and complete the rest.",
+    "off": "AI is not switched on, so please fill these in yourself. Your voice note is still sent.",
+    "failed": "The AI couldn't read that just now. Please fill these in yourself. Your voice note is still sent.",
+    "typeMore": "Write a few words about the child, or record a voice note.",
+    "needGender": "Choose boy or girl.",
+    "needAge": "Choose about how old the child is.",
+    "needName": "Enter the child's name.",
+    "needAgeNumber": "Enter the child's age in years (0 to 17).",
+    "badName": "Names can only have letters.",
+    "shortName": "That name looks too short.",
+    "badYear": "Enter a birth year between the dates shown.",
+    "yearHint": "A year from {a} to {b}.",
+    "notImage": "That file isn't a photo. Take or choose a photo.",
+    "optional": "Optional",
+    "ageHeard": "AI heard: {n} years old.",
+    "fixErrors": "Some details need fixing. Check the red messages above.",
+    "looksRight": "Details are correct, continue"
   }
 }

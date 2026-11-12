@@ -1,13 +1,13 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { ArrowLeft, ArrowRight, Baby, Camera, ImagePlus, MapPin, Search, Send, Trash2, UserPlus } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Baby, Camera, ImagePlus, MapPin, Search, Send, Sparkles, Trash2, UserPlus } from 'lucide-react'
 import { Button } from '../../components/Button'
 import { RequireRole, SignedInAs } from '../../components/RequireRole'
 import { Notice, PageHeader, ProgressDots } from '../../components/ui'
 import { StatusChip } from '../../components/CaseBits'
 import { ColourPicker } from '../../components/CaseCard'
 import { VoiceRecorder } from '../../components/VoiceRecorder'
-import { VoiceSummary } from '../../components/VoiceSummary'
+import { AutofillSummary, AutofillWorking, ChoiceGroup, EMPTY_FIELDS, nameError, requestAutofill, TextField, useAutofillTracking, type AutofillResult } from '../../components/Autofill'
 import { Chat } from '../../components/Chat'
 import { ReunitedMoment } from '../../components/Reunited'
 import type { PickedLocation } from '../../components/LocationPicker'
@@ -128,7 +128,8 @@ function ParentStatusChip({ status, kind }: { status: string; kind: string }) {
 
 // ---------------- Lost report ----------------
 
-type ReportStep = 'photo' | 'details' | 'voice' | 'where'
+type ReportStep = 'photo' | 'voice' | 'details' | 'where'
+type DetailErrors = Partial<Record<'name' | 'father' | 'age' | 'gender', string>>
 
 function LostReport({ childId, onDone }: { childId: string | null; onDone: (caseId: string) => void }) {
   const { t, dir } = useI18n()
@@ -142,16 +143,22 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
   const [gender, setGender] = useState<'male' | 'female' | null>(null)
   const [top, setTop] = useState<string | null>(null)
   const [bottom, setBottom] = useState<string | null>(null)
+  const [garments, setGarments] = useState<{ top_type: string | null; bottom_type: string | null }>({ top_type: null, bottom_type: null })
   const [voice, setVoice] = useState<Blob | null>(null)
   const [where, setWhere] = useState<PickedLocation | null>(null)
   const [minutesAgo, setMinutesAgo] = useState<number>(15)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [ai, setAi] = useState<AutofillResult | null>(null)
+  const [analysing, setAnalysing] = useState(false)
+  const [errs, setErrs] = useState<DetailErrors>({})
+  const tracking = useAutofillTracking()
+  const analysedFor = useRef<Blob | null>(null)
   const NextIcon = dir === 'rtl' ? ArrowLeft : ArrowRight
   const BackIcon = dir === 'rtl' ? ArrowRight : ArrowLeft
-  const steps: ReportStep[] = ['photo', 'details', 'voice', 'where']
+  const steps: ReportStep[] = ['photo', 'voice', 'details', 'where']
 
-  // Upload the voice note once: "Summarise with AI" and the final submit share the same upload.
+  // Upload the voice note once: autofill and the final submit share the same upload.
   const voiceUpload = useRef<{ blob: Blob; path: Promise<string> } | null>(null)
   const uploadVoice = useCallback((): Promise<string | null> => {
     if (!voice) return Promise.resolve(null)
@@ -165,12 +172,20 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
       if (!data) return
       const c = data as Child
       setChild(c)
+      // From the saved profile: the parent already confirmed these, so the AI won't change them.
       setName(c.name)
-      setGender(c.gender)
-      if (c.birth_year) setAge(String(new Date().getFullYear() - c.birth_year))
+      tracking.touch('child_name')
+      if (c.gender) {
+        setGender(c.gender)
+        tracking.touch('gender')
+      }
+      if (c.birth_year) {
+        setAge(String(new Date().getFullYear() - c.birth_year))
+        tracking.touch('age_est')
+      }
       if (c.photo_path) void supabase.storage.from('child-profiles').createSignedUrl(c.photo_path, 300).then((r) => setPhotoUrl(r.data?.signedUrl ?? null))
     })
-  }, [childId])
+  }, [childId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!photo) return
@@ -178,6 +193,69 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
     setPhotoUrl(u)
     return () => URL.revokeObjectURL(u)
   }, [photo])
+
+  const goStep = (s: ReportStep) => {
+    setError(null)
+    setStep(s)
+    window.scrollTo({ top: 0 })
+  }
+
+  async function analyse() {
+    setError(null)
+    if (!voice) return goStep('details')
+    if (analysedFor.current === voice) return goStep('details')
+    setAnalysing(true)
+    try {
+      const r = await requestAutofill({ voicePath: await uploadVoice(), text: '', kind: 'lost' })
+      if (r.ai_status === 'no_speech') {
+        setVoice(null)
+        return setError('autofill.noSpeech')
+      }
+      const f = r.fields
+      tracking.apply(
+        { child_name: f.child_name, father_name: f.father_name, age_est: f.age_est, gender: f.gender, top_color: f.top_color, bottom_color: f.bottom_color },
+        (k, v) => {
+          if (k === 'child_name') setName((v as string) ?? '')
+          if (k === 'father_name') setFather((v as string) ?? '')
+          if (k === 'age_est') setAge(v === null ? '' : String(v))
+          if (k === 'gender') setGender(v as 'male' | 'female' | null)
+          if (k === 'top_color') setTop(v as string | null)
+          if (k === 'bottom_color') setBottom(v as string | null)
+        },
+      )
+      setGarments({ top_type: f.top_type, bottom_type: f.bottom_type })
+      setAi(r)
+      analysedFor.current = voice
+      goStep('details')
+    } catch (e) {
+      const k = errorKey(e)
+      if (k === 'errors.bad_media_path') {
+        setVoice(null)
+        return setError(k)
+      }
+      setAi({ ai_status: 'failed', text: null, summary_en: null, summary_ur: null, fields: EMPTY_FIELDS, reason: null })
+      goStep('details')
+    } finally {
+      setAnalysing(false)
+    }
+  }
+
+  function confirmDetails() {
+    const e: DetailErrors = {}
+    if (!name.trim()) e.name = 'autofill.needName'
+    else {
+      const n = nameError(name)
+      if (n) e.name = n
+    }
+    const fa = nameError(father)
+    if (fa) e.father = fa
+    const a = age === '' ? NaN : Number(age)
+    if (!Number.isInteger(a) || a < 0 || a > 17) e.age = 'autofill.needAgeNumber'
+    if (!gender) e.gender = 'autofill.needGender'
+    setErrs(e)
+    if (Object.keys(e).length) return
+    goStep('where')
+  }
 
   async function submit() {
     setBusy(true)
@@ -188,12 +266,14 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
         kind: 'lost',
         fields: {
           child_id: child?.id,
-          child_name: name,
-          father_name: father,
+          child_name: name.trim(),
+          father_name: father.trim() || null,
           age_est: age === '' ? null : Number(age),
           gender,
           top_color: top,
+          top_type: top ? garments.top_type : null,
           bottom_color: bottom,
+          bottom_type: bottom ? garments.bottom_type : null,
           photo_path,
           voice_path,
           lat: where?.lat,
@@ -210,10 +290,12 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
   }
 
   const back = (s: ReportStep) => (
-    <button type="button" onClick={() => setStep(s)} className="inline-flex min-h-11 items-center gap-2 font-semibold">
+    <button type="button" onClick={() => goStep(s)} className="inline-flex min-h-11 items-center gap-2 font-semibold">
       <BackIcon className="size-5" aria-hidden /> {t('common.back')}
     </button>
   )
+  const aiHas = (f: string) => tracking.aiFilled.has(f)
+  const clear = (k: keyof DetailErrors) => setErrs((x) => (x[k] ? { ...x, [k]: undefined } : x))
 
   return (
     <div className="space-y-5">
@@ -226,40 +308,23 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
           <label className="flex min-h-14 cursor-pointer items-center justify-center gap-3 rounded-2xl border-2 border-sand-deep bg-sand text-lg font-bold hover:bg-sand-deep">
             <ImagePlus className="size-6" aria-hidden />
             {photoUrl ? t('parent.report.changePhoto') : t('parent.report.fromGallery')}
-            <input type="file" accept="image/*" className="sr-only" onChange={(e) => e.target.files?.[0] && void compressImage(e.target.files[0]).then(setPhoto)} />
+            <input
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (!f) return
+                if (!f.type.startsWith('image/')) return setError('autofill.notImage')
+                setError(null)
+                void compressImage(f).then(setPhoto).catch(() => setError('autofill.notImage'))
+              }}
+            />
           </label>
-          <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => setStep('details')}>
+          {error && <Notice tone="danger">{t(error)}</Notice>}
+          <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => goStep('voice')}>
             {photoUrl ? t('common.next') : t('parent.report.noPhoto')}
           </Button>
-        </>
-      )}
-
-      {step === 'details' && (
-        <>
-          <PageHeader title={t('parent.report.detailsTitle')} />
-          <Field label={t('card.name')} value={name} onChange={setName} />
-          <Field label={t('card.father')} value={father} onChange={setFather} />
-          <Field label={t('card.age')} value={age} onChange={setAge} numeric />
-          <fieldset>
-            <legend className="mb-2 font-bold">{t('finder.about.gender')}</legend>
-            <div className="grid grid-cols-2 gap-3">
-              {(['male', 'female'] as const).map((g) => (
-                <button
-                  key={g}
-                  type="button"
-                  aria-pressed={gender === g}
-                  onClick={() => setGender(gender === g ? null : g)}
-                  className={`min-h-14 rounded-2xl border-2 text-lg font-bold ${gender === g ? 'border-terracotta bg-terracotta text-white' : 'border-sand-deep bg-sand'}`}
-                >
-                  {t(`finder.about.${g}`)}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-          <ColourPicker label={t('parent.report.topColour')} value={top} onChange={setTop} />
-          <ColourPicker label={t('parent.report.bottomColour')} value={bottom} onChange={setBottom} />
-          <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => setStep('voice')}>{t('common.next')}</Button>
-          {back('photo')}
         </>
       )}
 
@@ -267,11 +332,105 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
         <>
           <PageHeader title={t('parent.report.voiceTitle')} lead={t('parent.report.voiceLead')} />
           <VoiceRecorder value={voice} onChange={setVoice} />
-          <VoiceSummary voice={voice} kind="lost" getPath={uploadVoice} />
-          <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => setStep('where')}>
-            {voice ? t('common.next') : t('finder.voice.skip')}
+          {error && <Notice tone="danger">{t(error)}</Notice>}
+          {analysing ? (
+            <AutofillWorking />
+          ) : voice ? (
+            <Button icon={<Sparkles className="size-6" aria-hidden />} onClick={() => void analyse()}>
+              {t('autofill.fillForm')}
+            </Button>
+          ) : (
+            <Button variant="secondary" icon={<NextIcon className="size-6" aria-hidden />} onClick={() => void analyse()}>
+              {t('autofill.fillMyself')}
+            </Button>
+          )}
+          {!analysing && back('photo')}
+        </>
+      )}
+
+      {step === 'details' && (
+        <>
+          <PageHeader title={t('autofill.reviewTitle')} lead={ai?.summary_en ? t('autofill.reviewLead') : undefined} />
+          <AutofillSummary result={ai} />
+          <TextField
+            label={t('card.name')}
+            required
+            value={name}
+            ai={aiHas('child_name')}
+            error={errs.name}
+            onChange={(v) => {
+              setName(v)
+              tracking.touch('child_name')
+              clear('name')
+            }}
+          />
+          <TextField
+            label={t('card.father')}
+            value={father}
+            ai={aiHas('father_name')}
+            error={errs.father}
+            hint={t('autofill.optional')}
+            onChange={(v) => {
+              setFather(v)
+              tracking.touch('father_name')
+              clear('father')
+            }}
+          />
+          <TextField
+            label={t('card.age')}
+            required
+            numeric
+            value={age}
+            ai={aiHas('age_est')}
+            error={errs.age}
+            onChange={(v) => {
+              setAge(v)
+              tracking.touch('age_est')
+              clear('age')
+            }}
+          />
+          <ChoiceGroup legend={t('finder.about.gender')} ai={aiHas('gender')} error={errs.gender}>
+            <div className="grid grid-cols-2 gap-3">
+              {(['male', 'female'] as const).map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  aria-pressed={gender === g}
+                  onClick={() => {
+                    setGender(g)
+                    tracking.touch('gender')
+                    clear('gender')
+                  }}
+                  className={`min-h-14 rounded-2xl border-2 text-lg font-bold ${gender === g ? 'border-terracotta bg-terracotta text-white' : 'border-sand-deep bg-sand'}`}
+                >
+                  {t(`finder.about.${g}`)}
+                </button>
+              ))}
+            </div>
+          </ChoiceGroup>
+          <ColourPicker
+            label={t('parent.report.topColour')}
+            value={top}
+            ai={aiHas('top_color')}
+            onChange={(c) => {
+              setTop(c)
+              tracking.touch('top_color')
+            }}
+          />
+          <ColourPicker
+            label={t('parent.report.bottomColour')}
+            value={bottom}
+            ai={aiHas('bottom_color')}
+            onChange={(c) => {
+              setBottom(c)
+              tracking.touch('bottom_color')
+            }}
+          />
+          {Object.values(errs).some(Boolean) && <Notice tone="danger">{t('autofill.fixErrors')}</Notice>}
+          <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={confirmDetails}>
+            {t('autofill.looksRight')}
           </Button>
-          {back('details')}
+          {back('voice')}
         </>
       )}
 
@@ -302,24 +461,10 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
             {t('parent.report.send')}
           </Button>
           <p className="text-ink-soft">{t('parent.report.privacy')}</p>
-          {!busy && back('voice')}
+          {!busy && back('details')}
         </>
       )}
     </div>
-  )
-}
-
-function Field({ label, value, onChange, numeric }: { label: string; value: string; onChange: (v: string) => void; numeric?: boolean }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block font-bold">{label}</span>
-      <input
-        value={value}
-        onChange={(e) => onChange(numeric ? e.target.value.replace(/\D/g, '').slice(0, 2) : e.target.value)}
-        inputMode={numeric ? 'numeric' : 'text'}
-        className="h-14 w-full rounded-2xl border-2 border-sand-deep bg-white px-4 text-lg outline-none focus:border-terracotta"
-      />
-    </label>
   )
 }
 
@@ -486,7 +631,11 @@ function AddChild({ parentId, onDone }: { parentId: string; onDone: () => void }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const thisYear = new Date().getFullYear()
   async function save() {
+    const n = name.trim() ? nameError(name) : 'autofill.needName'
+    if (n) return setError(n)
+    if (year && (Number(year) < thisYear - 17 || Number(year) > thisYear)) return setError('autofill.badYear')
     setBusy(true)
     setError(null)
     try {
@@ -514,10 +663,20 @@ function AddChild({ parentId, onDone }: { parentId: string; onDone: () => void }
       <label className="flex min-h-14 cursor-pointer items-center justify-center gap-3 rounded-2xl border-2 border-sand-deep bg-sand font-bold">
         <Camera className="size-6" aria-hidden />
         {photo ? t('children.photoAdded') : t('children.addPhoto')}
-        <input type="file" accept="image/*" className="sr-only" onChange={(e) => e.target.files?.[0] && void compressImage(e.target.files[0]).then(setPhoto)} />
+        <input
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (!f) return
+            if (!f.type.startsWith('image/')) return setError('autofill.notImage')
+            void compressImage(f).then(setPhoto).catch(() => setError('autofill.notImage'))
+          }}
+        />
       </label>
-      <Field label={t('card.name')} value={name} onChange={setName} />
-      <Field label={t('children.birthYear')} value={year} onChange={(v) => setYear(v.replace(/\D/g, '').slice(0, 4))} numeric={false} />
+      <TextField label={t('card.name')} required value={name} onChange={setName} />
+      <TextField label={t('children.birthYear')} value={year} onChange={setYear} numeric={4} hint={t('autofill.yearHint', { a: thisYear - 17, b: thisYear })} />
       <div className="grid grid-cols-2 gap-3">
         {(['male', 'female'] as const).map((g) => (
           <button key={g} type="button" aria-pressed={gender === g} onClick={() => setGender(g)} className={`min-h-12 rounded-2xl border-2 font-bold ${gender === g ? 'border-ink bg-ink text-cream' : 'border-sand-deep'}`}>

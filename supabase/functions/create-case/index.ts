@@ -9,6 +9,7 @@ import { normName } from '../_shared/matching.ts'
 import { COLOURS } from '../_shared/extract-fallback.ts'
 import { inBackground, processCase } from '../_shared/pipeline.ts'
 import { timeScale } from '../_shared/settings.ts'
+import { usableTypedText } from '../_shared/speech.ts'
 import { notifyCaseCreated, notifyLater } from '../_shared/whatsapp.ts'
 
 const ROLES: Record<string, Set<string>> = {
@@ -23,6 +24,11 @@ function str(v: unknown, max = 500): string | null {
 function num(v: unknown, min: number, max: number): number | null {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v !== '' ? Number(v) : NaN
   return Number.isFinite(n) && n >= min && n <= max ? n : null
+}
+/** Names keep letters (any script), spaces, dots, apostrophes and hyphens only. */
+function cleanName(v: unknown): string | null {
+  const s = str(v, 60)?.replace(/[^\p{L}\p{M}\s.'-]/gu, '').replace(/\s+/g, ' ').trim()
+  return s && (s.match(/\p{L}/gu) ?? []).length >= 2 ? s : null
 }
 const colour = (v: unknown) => (typeof v === 'string' && (COLOURS as readonly string[]).includes(v) ? v : null)
 
@@ -48,13 +54,14 @@ Deno.serve(
     const lng = num(f.lng, -180, 180)
     if (kind === 'found' && (lat === null || lng === null)) throw new HttpError(400, 'location_required')
 
-    const childName = str(f.child_name, 60)
-    const fatherName = str(f.father_name, 60)
-    const ageEst = num(f.age_est, 0, 18) ?? (under4 ? 3 : null)
+    const childName = cleanName(f.child_name)
+    const fatherName = cleanName(f.father_name)
+    const ageRaw = num(f.age_est, 0, 18)
+    const ageEst = ageRaw !== null ? Math.round(ageRaw) : under4 ? 3 : null
     const clothing = f.top_color || f.bottom_color ? { top_color: colour(f.top_color), top_type: str(f.top_type, 30), bottom_color: colour(f.bottom_color), bottom_type: str(f.bottom_type, 30), other: [] } : null
 
     // Fields a human typed or tapped are never overwritten by AI.
-    const humanFields = Object.entries({ gender, age_est: f.age_est ?? (under4 ? 3 : null), child_name: childName, father_name: fatherName, clothing })
+    const humanFields = Object.entries({ gender, age_est: ageEst, child_name: childName, father_name: fatherName, clothing })
       .filter(([, v]) => v !== null && v !== undefined)
       .map(([k]) => k)
 
@@ -90,7 +97,7 @@ Deno.serve(
       gender,
       age_est: ageEst,
       notes: str(f.notes, 1000),
-      transcript: str(f.typed_text, 2000),
+      transcript: usableTypedText(f.typed_text),
       photo_path: photoPath,
       wrist_photo_path: ownPath(f.wrist_photo_path),
       voice_path: ownPath(f.voice_path),

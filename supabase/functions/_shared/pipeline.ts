@@ -72,10 +72,10 @@ export async function processCase(
     try {
       const { data: blob, error } = await admin.storage.from('voice-notes').download(path)
       if (error || !blob) throw error ?? new Error('download failed')
-      const { text, language } = await transcribe(blob, path.split('/').pop() ?? 'voice.webm')
+      const { text, language, rejected } = await transcribe(blob, path.split('/').pop() ?? 'voice.webm')
       if (text) transcript = [transcript, text].filter(Boolean).join('\n')
       voiceDone.add(path)
-      await audit(admin, { action: 'ai.transcribed', actor: { type: 'ai' }, caseId, payload: { language, chars: text.length } })
+      await audit(admin, { action: rejected ? 'ai.voice_rejected' : 'ai.transcribed', actor: { type: 'ai' }, caseId, payload: { language, chars: text.length, rejected } })
     } catch (e) {
       aiStatus = 'failed'
       await audit(admin, { action: 'ai.transcribe_failed', actor: { type: 'ai' }, caseId, payload: { error: String(e).slice(0, 200) } })

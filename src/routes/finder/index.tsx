@@ -1,9 +1,20 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, CircleCheck, Footprints, Hand, Keyboard, MapPin, Send, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CircleCheck, Footprints, Hand, Keyboard, MapPin, Send, ShieldCheck, Sparkles } from 'lucide-react'
 import { Button } from '../../components/Button'
 import { PhotoCapture } from '../../components/PhotoCapture'
 import { VoiceRecorder } from '../../components/VoiceRecorder'
-import { VoiceSummary } from '../../components/VoiceSummary'
+import {
+  AutofillSummary,
+  AutofillWorking,
+  ChoiceGroup,
+  nameError,
+  requestAutofill,
+  TextField,
+  useAutofillTracking,
+  EMPTY_FIELDS,
+  type AutoFields,
+  type AutofillResult,
+} from '../../components/Autofill'
 import { RequireRole, SignedInAs } from '../../components/RequireRole'
 import { Notice, PageHeader, ProgressDots } from '../../components/ui'
 import type { PickedLocation } from '../../components/LocationPicker'
@@ -13,7 +24,7 @@ import { compressImage, uploadMedia } from '../../lib/media'
 import { nearestSafePoints, walkingMinutes } from '../../lib/geo'
 import { useSafePoints } from '../../lib/useSafePoints'
 import { shortId, useLiveCase } from '../../lib/useLiveCase'
-import { CaseCard } from '../../components/CaseCard'
+import { CaseCard, ColourPicker } from '../../components/CaseCard'
 import { MatchReview } from '../../components/MatchReview'
 import { Chat } from '../../components/Chat'
 import { ReunitedMoment } from '../../components/Reunited'
@@ -21,13 +32,14 @@ import { useFinderMatches } from '../../lib/useMatches'
 
 const LocationPicker = lazy(() => import('../../components/LocationPicker').then((m) => ({ default: m.LocationPicker })))
 
-type Step = 'photo' | 'about' | 'voice' | 'location' | 'card' | 'safepoint' | 'handover'
-const DOTS: Step[] = ['photo', 'about', 'voice', 'location', 'card', 'safepoint']
+type Step = 'photo' | 'voice' | 'review' | 'location' | 'card' | 'safepoint' | 'handover'
+const DOTS: Step[] = ['photo', 'voice', 'review', 'location', 'card', 'safepoint']
 const ACTIVE_CASE_KEY = 'wapsi.finder.activeCase'
 
 type Gender = 'male' | 'female' | null
 type AgeBand = 'under4' | '4to8' | '9plus' | null
-const AGE_FOR_BAND: Record<Exclude<AgeBand, null>, number | null> = { under4: 3, '4to8': 6, '9plus': 10 }
+const AGE_FOR_BAND: Record<Exclude<AgeBand, null>, number> = { under4: 3, '4to8': 6, '9plus': 10 }
+const bandOf = (age: number | null): AgeBand => (age === null ? null : age < 4 ? 'under4' : age <= 8 ? '4to8' : '9plus')
 
 function readActiveCase(): string | null {
   try {
@@ -54,14 +66,14 @@ export default function Finder() {
   )
 }
 
+type ReviewErrors = Partial<Record<'gender' | 'ageBand' | 'child_name' | 'father_name', string>>
+
 function FinderFlow() {
   const { t, dir } = useI18n()
   const [caseId, setCaseId] = useState<string | null>(readActiveCase)
   const [step, setStep] = useState<Step>(caseId ? 'handover' : 'photo')
 
   const [photo, setPhoto] = useState<Blob | null>(null)
-  const [gender, setGender] = useState<Gender>(null)
-  const [ageBand, setAgeBand] = useState<AgeBand>(null)
   const [voice, setVoice] = useState<Blob | null>(null)
   const [typing, setTyping] = useState(false)
   const [text, setText] = useState('')
@@ -69,11 +81,29 @@ function FinderFlow() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Review form: filled by the AI, checked and corrected by the finder.
+  const [gender, setGender] = useState<Gender>(null)
+  const [ageBand, setAgeBand] = useState<AgeBand>(null)
+  const [ageExact, setAgeExact] = useState<number | null>(null)
+  const [childName, setChildName] = useState('')
+  const [fatherName, setFatherName] = useState('')
+  const [top, setTop] = useState<string | null>(null)
+  const [bottom, setBottom] = useState<string | null>(null)
+  const [garments, setGarments] = useState<Pick<AutoFields, 'top_type' | 'bottom_type'>>({ top_type: null, bottom_type: null })
+  const [ai, setAi] = useState<AutofillResult | null>(null)
+  const [analysing, setAnalysing] = useState(false)
+  const [reviewErrors, setReviewErrors] = useState<ReviewErrors>({})
+  const tracking = useAutofillTracking()
+  const analysedKey = useRef<string | null>(null)
+  const voiceVersion = useRef(0)
+
   // Uploads start the moment media is captured, so "Send" only waits for whatever is left.
   const uploads = useRef<Record<'photo' | 'voice', Promise<string> | null>>({ photo: null, voice: null })
 
   const onPhoto = useCallback((f: File | null) => {
     if (!f) return
+    if (!f.type.startsWith('image/')) return setError('autofill.notImage')
+    setError(null)
     void compressImage(f).then((b) => {
       setPhoto(b)
       uploads.current.photo = uploadMedia('case-photos', b)
@@ -82,6 +112,7 @@ function FinderFlow() {
   }, [])
   const onVoice = useCallback((b: Blob | null) => {
     setVoice(b)
+    voiceVersion.current++
     uploads.current.voice = b ? uploadMedia('voice-notes', b) : null
     uploads.current.voice?.catch(() => {})
   }, [])
@@ -92,6 +123,79 @@ function FinderFlow() {
     setError(null)
     setStep(s)
     window.scrollTo({ top: 0 })
+  }
+
+  function applyFields(f: AutoFields) {
+    tracking.apply(
+      {
+        gender: f.gender,
+        ageBand: bandOf(f.age_est),
+        child_name: f.child_name,
+        father_name: f.father_name,
+        top_color: f.top_color,
+        bottom_color: f.bottom_color,
+      },
+      (k, v) => {
+        if (k === 'gender') setGender(v as Gender)
+        if (k === 'ageBand') {
+          setAgeBand(v as AgeBand)
+          setAgeExact(v ? f.age_est : null)
+        }
+        if (k === 'child_name') setChildName((v as string) ?? '')
+        if (k === 'father_name') setFatherName((v as string) ?? '')
+        if (k === 'top_color') setTop(v as string | null)
+        if (k === 'bottom_color') setBottom(v as string | null)
+      },
+    )
+    setGarments({ top_type: f.top_type, bottom_type: f.bottom_type })
+  }
+
+  // Voice note / typed text -> AI fills the review form. Silent recordings are sent back.
+  async function analyse() {
+    setError(null)
+    const typed = text.trim()
+    if (typed && (typed.match(/\p{L}/gu) ?? []).length < 3) return setError('autofill.typeMore')
+    if (!voice && !typed) return go('review')
+    const key = `${voice ? voiceVersion.current : 0}|${typed}`
+    if (key === analysedKey.current) return go('review')
+    setAnalysing(true)
+    try {
+      const voicePath = voice ? await uploads.current.voice : null
+      const r = await requestAutofill({ voicePath, text: typed, kind: 'found' })
+      if (r.ai_status === 'no_speech') {
+        onVoice(null)
+        setTyping(false)
+        return setError('autofill.noSpeech')
+      }
+      applyFields(r.fields)
+      setAi(r)
+      analysedKey.current = key
+      go('review')
+    } catch (e) {
+      const k = errorKey(e)
+      if (k === 'errors.bad_media_path' && voice) {
+        onVoice(null)
+        return setError(k)
+      }
+      // AI unreachable: the finder fills the form in by hand; the voice note is still sent.
+      setAi({ ai_status: 'failed', text: null, summary_en: null, summary_ur: null, fields: EMPTY_FIELDS, reason: null })
+      go('review')
+    } finally {
+      setAnalysing(false)
+    }
+  }
+
+  function confirmReview() {
+    const errs: ReviewErrors = {}
+    if (!gender) errs.gender = 'autofill.needGender'
+    if (!ageBand) errs.ageBand = 'autofill.needAge'
+    const n = nameError(childName)
+    if (n) errs.child_name = n
+    const fa = nameError(fatherName)
+    if (fa) errs.father_name = fa
+    setReviewErrors(errs)
+    if (Object.keys(errs).length) return
+    go('location')
   }
 
   async function submit() {
@@ -105,7 +209,13 @@ function FinderFlow() {
         fields: {
           gender,
           under_4: ageBand === 'under4',
-          age_est: ageBand ? AGE_FOR_BAND[ageBand] : null,
+          age_est: ageExact ?? (ageBand ? AGE_FOR_BAND[ageBand] : null),
+          child_name: childName.trim() || null,
+          father_name: fatherName.trim() || null,
+          top_color: top,
+          top_type: top ? garments.top_type : null,
+          bottom_color: bottom,
+          bottom_type: bottom ? garments.bottom_type : null,
           typed_text: text,
           photo_path,
           voice_path,
@@ -130,6 +240,16 @@ function FinderFlow() {
     setPhoto(null)
     setGender(null)
     setAgeBand(null)
+    setAgeExact(null)
+    setChildName('')
+    setFatherName('')
+    setTop(null)
+    setBottom(null)
+    setGarments({ top_type: null, bottom_type: null })
+    setAi(null)
+    setReviewErrors({})
+    tracking.reset()
+    analysedKey.current = null
     setVoice(null)
     setText('')
     setTyping(false)
@@ -144,6 +264,8 @@ function FinderFlow() {
       <BackIcon className="size-5" aria-hidden /> {t('common.back')}
     </button>
   )
+  const aiHas = (f: string) => tracking.aiFilled.has(f)
+  const clearErr = (k: keyof ReviewErrors) => setReviewErrors((e) => (e[k] ? { ...e, [k]: undefined } : e))
 
   return (
     <div>
@@ -153,43 +275,12 @@ function FinderFlow() {
         <section className="space-y-5">
           <PageHeader title={t('finder.photo.title')} lead={t('finder.photo.lead')} />
           <PhotoCapture value={photo} onChange={onPhoto} label={t('finder.photo.take')} />
+          {error && <Notice tone="danger">{t(error)}</Notice>}
           {photo && (
-            <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => go('about')}>
+            <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => go('voice')}>
               {t('common.next')}
             </Button>
           )}
-        </section>
-      )}
-
-      {step === 'about' && (
-        <section className="space-y-6">
-          <PageHeader title={t('finder.about.title')} />
-          <fieldset>
-            <legend className="mb-3 text-lg font-bold">{t('finder.about.gender')}</legend>
-            <div className="grid grid-cols-2 gap-3">
-              {(['male', 'female'] as const).map((g) => (
-                <Choice key={g} selected={gender === g} onClick={() => setGender(gender === g ? null : g)}>
-                  {t(`finder.about.${g}`)}
-                </Choice>
-              ))}
-            </div>
-          </fieldset>
-          <fieldset>
-            <legend className="mb-3 text-lg font-bold">{t('finder.about.age')}</legend>
-            <div className="grid grid-cols-3 gap-3">
-              {(['under4', '4to8', '9plus'] as const).map((a) => (
-                <Choice key={a} selected={ageBand === a} onClick={() => setAgeBand(ageBand === a ? null : a)}>
-                  {t(`finder.about.age_${a}`)}
-                </Choice>
-              ))}
-            </div>
-          </fieldset>
-          {gender === 'female' && <Notice>{t('finder.about.girlNote', { desk: t('brand.womenDesk') })}</Notice>}
-          {ageBand === 'under4' && <Notice>{t('finder.about.under4Note')}</Notice>}
-          <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => go('voice')}>
-            {t('common.next')}
-          </Button>
-          {back('photo')}
         </section>
       )}
 
@@ -197,10 +288,7 @@ function FinderFlow() {
         <section className="space-y-6">
           <PageHeader title={t('finder.voice.title')} lead={t('finder.voice.lead')} />
           {!typing ? (
-            <>
-              <VoiceRecorder value={voice} onChange={onVoice} />
-              <VoiceSummary voice={voice} kind="found" getPath={() => uploads.current.voice ?? Promise.resolve(null)} />
-            </>
+            <VoiceRecorder value={voice} onChange={onVoice} />
           ) : (
             <textarea
               value={text}
@@ -208,22 +296,126 @@ function FinderFlow() {
               rows={5}
               maxLength={2000}
               placeholder={t('finder.voice.typePlaceholder')}
+              aria-label={t('finder.voice.title')}
               className="w-full rounded-2xl border-2 border-sand-deep bg-white p-4 text-lg outline-none focus:border-terracotta"
               autoFocus
             />
           )}
-          <button
-            type="button"
-            onClick={() => setTyping((v) => !v)}
-            className="inline-flex min-h-11 items-center gap-2 font-semibold underline-offset-4 hover:underline"
-          >
-            <Keyboard className="size-5" aria-hidden />
-            {typing ? t('finder.voice.recordInstead') : t('finder.voice.typeInstead')}
-          </button>
-          <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => go('location')}>
-            {voice || text.trim() ? t('common.next') : t('finder.voice.skip')}
+          {!analysing && (
+            <button
+              type="button"
+              onClick={() => setTyping((v) => !v)}
+              className="inline-flex min-h-11 items-center gap-2 font-semibold underline-offset-4 hover:underline"
+            >
+              <Keyboard className="size-5" aria-hidden />
+              {typing ? t('finder.voice.recordInstead') : t('finder.voice.typeInstead')}
+            </button>
+          )}
+          {error && <Notice tone="danger">{t(error)}</Notice>}
+          {analysing ? (
+            <AutofillWorking />
+          ) : voice || text.trim() ? (
+            <Button icon={<Sparkles className="size-6" aria-hidden />} onClick={() => void analyse()}>
+              {t('autofill.fillForm')}
+            </Button>
+          ) : (
+            <Button variant="secondary" icon={<NextIcon className="size-6" aria-hidden />} onClick={() => void analyse()}>
+              {t('autofill.fillMyself')}
+            </Button>
+          )}
+          {!analysing && back('photo')}
+        </section>
+      )}
+
+      {step === 'review' && (
+        <section className="space-y-6">
+          <PageHeader title={t('autofill.reviewTitle')} lead={ai?.summary_en ? t('autofill.reviewLead') : undefined} />
+          <AutofillSummary result={ai} />
+          <ChoiceGroup legend={t('finder.about.gender')} ai={aiHas('gender')} error={reviewErrors.gender}>
+            <div className="grid grid-cols-2 gap-3">
+              {(['male', 'female'] as const).map((g) => (
+                <Choice
+                  key={g}
+                  selected={gender === g}
+                  onClick={() => {
+                    setGender(g)
+                    tracking.touch('gender')
+                    clearErr('gender')
+                  }}
+                >
+                  {t(`finder.about.${g}`)}
+                </Choice>
+              ))}
+            </div>
+          </ChoiceGroup>
+          <ChoiceGroup legend={t('finder.about.age')} ai={aiHas('ageBand')} error={reviewErrors.ageBand}>
+            <div className="grid grid-cols-3 gap-3">
+              {(['under4', '4to8', '9plus'] as const).map((a) => (
+                <Choice
+                  key={a}
+                  selected={ageBand === a}
+                  onClick={() => {
+                    setAgeBand(a)
+                    if (bandOf(ageExact) !== a) setAgeExact(null)
+                    tracking.touch('ageBand')
+                    clearErr('ageBand')
+                  }}
+                >
+                  {t(`finder.about.age_${a}`)}
+                </Choice>
+              ))}
+            </div>
+            {ageExact !== null && ageBand === bandOf(ageExact) && <p className="mt-2 text-ink-soft">{t('autofill.ageHeard', { n: ageExact })}</p>}
+          </ChoiceGroup>
+          {gender === 'female' && <Notice>{t('finder.about.girlNote', { desk: t('brand.womenDesk') })}</Notice>}
+          {ageBand === 'under4' && <Notice>{t('finder.about.under4Note')}</Notice>}
+          <TextField
+            label={t('card.name')}
+            value={childName}
+            ai={aiHas('child_name')}
+            error={reviewErrors.child_name}
+            hint={t('autofill.optional')}
+            onChange={(v) => {
+              setChildName(v)
+              tracking.touch('child_name')
+              clearErr('child_name')
+            }}
+          />
+          <TextField
+            label={t('card.father')}
+            value={fatherName}
+            ai={aiHas('father_name')}
+            error={reviewErrors.father_name}
+            hint={t('autofill.optional')}
+            onChange={(v) => {
+              setFatherName(v)
+              tracking.touch('father_name')
+              clearErr('father_name')
+            }}
+          />
+          <ColourPicker
+            label={t('parent.report.topColour')}
+            value={top}
+            ai={aiHas('top_color')}
+            onChange={(c) => {
+              setTop(c)
+              tracking.touch('top_color')
+            }}
+          />
+          <ColourPicker
+            label={t('parent.report.bottomColour')}
+            value={bottom}
+            ai={aiHas('bottom_color')}
+            onChange={(c) => {
+              setBottom(c)
+              tracking.touch('bottom_color')
+            }}
+          />
+          {Object.values(reviewErrors).some(Boolean) && <Notice tone="danger">{t('autofill.fixErrors')}</Notice>}
+          <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={confirmReview}>
+            {t('autofill.looksRight')}
           </Button>
-          {back('about')}
+          {back('voice')}
         </section>
       )}
 
@@ -238,7 +430,7 @@ function FinderFlow() {
             {t('finder.location.send')}
           </Button>
           <p className="text-ink-soft">{t('finder.location.privacy')}</p>
-          {!busy && back('voice')}
+          {!busy && back('review')}
         </section>
       )}
 

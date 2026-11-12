@@ -248,6 +248,8 @@ escalated_police ──(match + verify still possible)──► reunited
 ```
 Colour vocabulary is fixed (red, blue, green, yellow, white, black, pink, orange, purple, brown, grey). The prompt maps Urdu/Saraiki words to it (laal→red, neela→blue, peela→yellow, kala→black, chitta/safed→white, hara/sabz→green, gulabi→pink).
 
+**Autofill + silence guard (2026-11-12):** `ai-transcribe` now takes a voice path and/or typed text and returns review-form `fields`, the summary and `ai_status` (`ok`/`partial`/`unclear`/`no_speech`/`empty`/`off`/`failed`). Whisper invents words on silence (it echoed our old story-like prompt as a fake "Ali, son of Raza" report), so: (1) the recorder rejects recordings under 1.5 s or with under ~0.4 s of sound above the speech level, on the phone; (2) `_shared/speech.ts` rejects transcripts using Whisper's `no_speech_prob`/`avg_logprob`/`compression_ratio`, stock subtitle phrases, filler-only text, prompt echoes and one-word loops (tested in `tests/speech.test.ts`); (3) the Whisper prompt is a plain word list; (4) the LLM must return null summaries when the text has no facts about a child, and `normalizeExtract` drops any summary without facts. The case pipeline uses the same checks. `create-case` strips non-letters from names and requires real letters in typed text.
+
 **Prompt-injection guard:** transcripts are data. The system prompt says to ignore any instructions inside them. Nothing in a transcript can change status. Only `transition()` can.
 
 ---
@@ -282,7 +284,8 @@ Missing data on either side → that factor is skipped and the weights are re-no
 ### Finder `/f`
 1. **Phone + OTP.** One big field.
 2. **Child photo.** Camera opens directly. Optional second button: "📷 Number on the wrist?" (wrist photo, then OCR runs in the background).
-3. **Voice note.** Big hold-to-record mic: "Batayein kya hua, bacha kya keh raha hai." There's a "Type instead" link.
+3. **Voice note.** Big hold-to-record mic: "Batayein kya hua, bacha kya keh raha hai." There's a "Type instead" link. "Fill the form with AI" sends it to `ai-transcribe`.
+3b. **Review (autofill, 2026-11-12).** The AI fills every field (boy/girl, age band, name, father, top/bottom colour) with a "Filled by AI" badge and its summary; the finder corrects anything and must confirm boy/girl and age (safety rules R4/R11). Edited fields are never overwritten by AI. Silent or unclear recordings are sent back to be re-recorded (see section 7).
 4. **Location.** Auto GPS, with a map pin you can drag.
 5. **Case card.** AI summary (Urdu + English), extracted fields as editable chips, **"Bachay se poochein: …"** guided-question card (record the answer, then fields re-extract).
 6. **Go to safe point.** Nearest safe point on the map plus walking distance. **If the child is a girl → only Behan Desk points.** Button: "I'm at the safe point" → `at_safe_point`.
@@ -291,7 +294,7 @@ Missing data on either side → that factor is skipped and the weights are re-no
 ### Parent `/p`
 1. Phone + OTP.
 2. Choose **"Mera bacha gum hai"** or **"Status dekhein"**.
-3. Photo from **own gallery**, voice note, last-seen point on the map plus time ("kitni dair pehle"), optional route description.
+3. Photo from **own gallery**, voice note → **AI fills the details → parent reviews them** (name, age and boy/girl required; names letters only; age 0–17), last-seen point on the map plus time ("kitni dair pehle"), optional route description.
 4. **Status tracker** (realtime): Searching → Possible match (no photo, no location) → Finder confirmed → "Go to [safe point name]" → Reunited. Chat with the finder once confirmed.
 
 ### Gate check-in `/checkin` ("Aaj ki Tasveer")

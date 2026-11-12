@@ -4,6 +4,35 @@ import { useI18n } from '../i18n'
 
 const MAX_SECONDS = 60
 const TAP_THRESHOLD_MS = 350
+const MIN_MS = 1500 // shorter than this can't hold a name and a description
+// Loudness check: RMS of the mic signal, sampled every 100 ms. Room hiss sits around 0.002-0.01,
+// speech near the phone around 0.03-0.3. We need ~0.4 s of sound above the line to accept it.
+const SPEECH_RMS = 0.015
+const MIN_LOUD_SAMPLES = 4
+
+type Meter = { ctx: AudioContext; timer: number; loud: number }
+
+function startMeter(stream: MediaStream): Meter | null {
+  try {
+    const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AC) return null
+    const ctx = new AC()
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 2048
+    ctx.createMediaStreamSource(stream).connect(analyser)
+    const buf = new Float32Array(analyser.fftSize)
+    const meter: Meter = { ctx, timer: 0, loud: 0 }
+    meter.timer = window.setInterval(() => {
+      analyser.getFloatTimeDomainData(buf)
+      let sum = 0
+      for (const x of buf) sum += x * x
+      if (Math.sqrt(sum / buf.length) > SPEECH_RMS) meter.loud++
+    }, 100)
+    return meter
+  } catch {
+    return null // no meter: the server still checks for silence
+  }
+}
 
 function pickMime(): string | undefined {
   const options = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
@@ -23,8 +52,15 @@ export function VoiceRecorder({ value, onChange }: { value: Blob | null; onChang
   const pressStart = useRef(0)
   const timer = useRef<number | undefined>(undefined)
   const url = useUrl(value)
+  const mounted = useRef(true)
 
-  useEffect(() => () => stop(), []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      stop()
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function start() {
     setError(null)
@@ -37,10 +73,20 @@ export function VoiceRecorder({ value, onChange }: { value: Blob | null; onChang
       const mimeType = pickMime()
       const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
       const chunks: Blob[] = []
+      const meter = startMeter(stream)
+      const startedAt = Date.now()
       rec.ondataavailable = (e) => e.data.size && chunks.push(e.data)
       rec.onstop = () => {
         stream.getTracks().forEach((tr) => tr.stop())
+        if (meter) {
+          window.clearInterval(meter.timer)
+          void meter.ctx.close().catch(() => {})
+        }
+        if (!mounted.current) return
         const blob = new Blob(chunks, { type: (rec.mimeType || 'audio/webm').split(';')[0] })
+        // Never hand on a recording with nothing in it: Whisper would invent words for it.
+        if (Date.now() - startedAt < MIN_MS) return setError('voice.tooShort')
+        if (meter && meter.loud < MIN_LOUD_SAMPLES) return setError('voice.silent')
         if (blob.size > 0) onChange(blob)
       }
       rec.start()

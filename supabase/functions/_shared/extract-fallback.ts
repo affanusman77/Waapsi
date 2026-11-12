@@ -183,5 +183,16 @@ export function normalizeExtract(raw: unknown): Extract | null {
     summary_ur: str(r.summary_ur, 400),
   }
   out.missing_fields = missingFields(out)
+  // A summary with no facts behind it was invented: drop it.
+  if (!hasChildFacts(out)) {
+    out.summary_en = null
+    out.summary_ur = null
+  }
   return out
+}
+
+/** True when the extract says at least one concrete thing about the child. */
+export function hasChildFacts(e: Pick<Extract, 'child_name' | 'father_name' | 'age_est' | 'gender' | 'clothing' | 'home_area'>): boolean {
+  const c = e.clothing ?? {}
+  return !!(e.child_name || e.father_name || e.age_est !== null || e.gender || e.home_area || c.top_color || c.top_type || c.bottom_color || c.bottom_type)
 }

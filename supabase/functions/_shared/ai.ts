@@ -1,5 +1,6 @@
 // OpenAI-compatible client (Groq recommended). Every call has a timeout and THROWS on failure;
 // callers catch and fall back (R6: fail open). Nothing here ever changes a case's status.
+import { judgeTranscript, STT_PROMPT, type SpeechReject } from './speech.ts'
 
 const env = (k: string) => Deno.env.get(k)?.trim() || undefined
 
@@ -14,19 +15,24 @@ function auth() {
   return { Authorization: `Bearer ${env('AI_API_KEY')}` }
 }
 
-/** Whisper transcription. Saraiki isn't an official Whisper language: we let it auto-detect and the LLM normalises. */
-export async function transcribe(audio: Blob, filename: string): Promise<{ text: string; language: string | null }> {
+/**
+ * Whisper transcription. Saraiki isn't an official Whisper language: we let it auto-detect and the LLM normalises.
+ * Silence and Whisper's invented phrases come back as text '' with a `rejected` reason, never as fake words.
+ */
+export async function transcribe(audio: Blob, filename: string): Promise<{ text: string; language: string | null; rejected: SpeechReject | null }> {
+  if (audio.size < 1200) return { text: '', language: null, rejected: 'too_short' } // a header, no real audio
   const form = new FormData()
   form.append('file', audio, filename)
   form.append('model', env('AI_STT_MODEL') ?? 'whisper-large-v3')
   form.append('response_format', 'verbose_json')
   form.append('temperature', '0')
-  // A vocabulary hint helps Whisper with Pakistani names and Roman-Urdu words.
-  form.append('prompt', 'Bacha mila hai. Naam Ali, abu ka naam Raza. Hussain Agahi, Multan. Laal shirt, kali shalwar. Saraiki, Punjabi, Urdu.')
+  // A vocabulary hint helps with Roman-Urdu words. Only a word list: see speech.ts.
+  form.append('prompt', STT_PROMPT)
   const res = await fetch(`${base()}/audio/transcriptions`, { method: 'POST', headers: auth(), body: form, signal: AbortSignal.timeout(25_000) })
   if (!res.ok) throw new Error(`transcribe ${res.status}: ${(await res.text()).slice(0, 200)}`)
   const j = await res.json()
-  return { text: String(j.text ?? '').trim(), language: j.language ?? null }
+  const { text, reject } = judgeTranscript(j)
+  return { text, language: j.language ?? null, rejected: reject }
 }
 
 // Providers retire and rename chat models often. When the configured model is missing (or none is set),

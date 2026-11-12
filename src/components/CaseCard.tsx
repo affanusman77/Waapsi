@@ -3,6 +3,7 @@ import { Check, MessageCircleQuestion, Pencil, Sparkles, X } from 'lucide-react'
 import { Button } from './Button'
 import { VoiceRecorder } from './VoiceRecorder'
 import { Notice } from './ui'
+import { AiBadge } from './Autofill'
 import { useI18n } from '../i18n'
 import { callFn, errorKey } from '../lib/api'
 import { uploadMedia } from '../lib/media'
@@ -19,11 +20,14 @@ export function ColourSwatch({ c }: { c: string }) {
 }
 
 /** Big colour chips (no typing): used by finders, parents and gate check-in. */
-export function ColourPicker({ value, onChange, label }: { value: string | null; onChange: (c: string | null) => void; label: string }) {
+export function ColourPicker({ value, onChange, label, ai }: { value: string | null; onChange: (c: string | null) => void; label: string; ai?: boolean }) {
   const { t } = useI18n()
   return (
     <fieldset>
-      <legend className="mb-2 font-bold">{label}</legend>
+      <legend className="mb-2 font-bold">
+        {label}
+        <AiBadge show={!!ai} />
+      </legend>
       <div className="flex flex-wrap gap-2">
         {COLOURS.map((c) => (
           <button
