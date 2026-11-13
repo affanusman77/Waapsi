@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router'
 import { ArrowLeft, ArrowRight, Baby, Camera, ImagePlus, MapPin, Search, Send, Sparkles, Trash2, UserPlus } from 'lucide-react'
 import { Button } from '../../components/Button'
 import { RequireRole, SignedInAs } from '../../components/RequireRole'
+import { PhotoCheckNotice, photoUsable, usePhotoCheck } from '../../components/PhotoCheck'
 import { Notice, PageHeader, ProgressDots } from '../../components/ui'
 import { StatusChip } from '../../components/CaseBits'
 import { ColourPicker } from '../../components/CaseCard'
@@ -154,6 +155,9 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
   const [errs, setErrs] = useState<DetailErrors>({})
   const tracking = useAutofillTracking()
   const analysedFor = useRef<Blob | null>(null)
+  // The photo is uploaded as soon as it is chosen, so it can be checked (one clear face?) and reused on submit.
+  const photoCheck = usePhotoCheck()
+  const photoUpload = useRef<{ blob: Blob; path: Promise<string> } | null>(null)
   const NextIcon = dir === 'rtl' ? ArrowLeft : ArrowRight
   const BackIcon = dir === 'rtl' ? ArrowRight : ArrowLeft
   const steps: ReportStep[] = ['photo', 'voice', 'details', 'where']
@@ -261,7 +265,7 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
     setBusy(true)
     setError(null)
     try {
-      const [photo_path, voice_path] = await Promise.all([photo ? uploadMedia('case-photos', photo) : null, uploadVoice()])
+      const [photo_path, voice_path] = await Promise.all([photo ? (photoUpload.current?.blob === photo ? photoUpload.current.path : uploadMedia('case-photos', photo)) : null, uploadVoice()])
       const r = await callFn<{ case: { id: string } }>('create-case', {
         kind: 'lost',
         fields: {
@@ -317,14 +321,42 @@ function LostReport({ childId, onDone }: { childId: string | null; onDone: (case
                 if (!f) return
                 if (!f.type.startsWith('image/')) return setError('autofill.notImage')
                 setError(null)
-                void compressImage(f).then(setPhoto).catch(() => setError('autofill.notImage'))
+                void compressImage(f)
+                  .then((b) => {
+                    setPhoto(b)
+                    photoUpload.current = { blob: b, path: uploadMedia('case-photos', b) }
+                    photoUpload.current.path.catch(() => {})
+                    void photoCheck.check(photoUpload.current.path)
+                  })
+                  .catch(() => setError('autofill.notImage'))
               }}
             />
           </label>
+          {photo && <PhotoCheckNotice state={photoCheck.state} showEstimate={false} />}
           {error && <Notice tone="danger">{t(error)}</Notice>}
-          <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => goStep('voice')}>
-            {photoUrl ? t('common.next') : t('parent.report.noPhoto')}
-          </Button>
+          {photo && photoCheck.state.status === 'retake' ? (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setPhoto(null)
+                setPhotoUrl(null)
+                photoUpload.current = null
+                photoCheck.reset()
+              }}
+            >
+              {t('photoCheck.remove')}
+            </Button>
+          ) : photo && photoCheck.state.status === 'checking' ? (
+            <Button busy disabled>
+              {t('photoCheck.checking')}
+            </Button>
+          ) : (
+            (!photo || photoUsable(photoCheck.state)) && (
+              <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => goStep('voice')}>
+                {photoUrl ? t('common.next') : t('parent.report.noPhoto')}
+              </Button>
+            )
+          )}
         </>
       )}
 

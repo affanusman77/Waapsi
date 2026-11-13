@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ArrowLeft, ArrowRight, CircleCheck, PenLine, UserPlus } from 'lucide-react'
 import { Button } from '../../components/Button'
@@ -11,6 +11,7 @@ import { callFn, errorKey } from '../../lib/api'
 import { compressImage, uploadMedia } from '../../lib/media'
 import { MyCases } from '../parent'
 import { nameError } from '../../components/Autofill'
+import { PhotoCheckNotice, photoUsable, usePhotoCheck } from '../../components/PhotoCheck'
 import { brand } from '../../config/brand'
 
 const GATE = { lat: 30.2002, lng: 71.469 } // Shrine Gate (demo event gate)
@@ -38,10 +39,27 @@ function CheckinFlow() {
   const [error, setError] = useState<string | null>(null)
   const NextIcon = dir === 'rtl' ? ArrowLeft : ArrowRight
 
-  const onPhoto = useCallback((f: File | null) => f && void compressImage(f).then(setPhoto), [])
+  const photoCheck = usePhotoCheck()
+  const photoUpload = useRef<{ blob: Blob; path: Promise<string> } | null>(null)
+  const onPhoto = useCallback(
+    (f: File | null) => {
+      if (!f) return
+      if (!f.type.startsWith('image/')) return setError('autofill.notImage')
+      setError(null)
+      void compressImage(f).then((b) => {
+        setPhoto(b)
+        photoUpload.current = { blob: b, path: uploadMedia('case-photos', b) }
+        photoUpload.current.path.catch(() => {})
+        void photoCheck.check(photoUpload.current.path)
+      })
+    },
+    [photoCheck.check],
+  )
 
   function another() {
     setPhoto(null)
+    photoUpload.current = null
+    photoCheck.reset()
     setName('')
     setAge('')
     setGender(null)
@@ -58,7 +76,7 @@ function CheckinFlow() {
     setBusy(true)
     setError(null)
     try {
-      const photo_path = photo ? await uploadMedia('case-photos', photo) : null
+      const photo_path = photo ? await (photoUpload.current?.blob === photo ? photoUpload.current.path : uploadMedia('case-photos', photo)) : null
       const where = await new Promise<{ lat: number; lng: number }>((resolve) => {
         if (!navigator.geolocation) return resolve(GATE)
         navigator.geolocation.getCurrentPosition((p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }), () => resolve(GATE), { timeout: 5000 })
@@ -83,7 +101,18 @@ function CheckinFlow() {
         <>
           <PageHeader title={lang === 'ur' ? brand.checkinNameUr : brand.checkinName} lead={t('checkin.lead')} />
           <PhotoCapture value={photo} onChange={onPhoto} label={t('checkin.takePhoto')} />
-          {photo && <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => setStep('details')}>{t('common.next')}</Button>}
+          {photo && <PhotoCheckNotice state={photoCheck.state} showEstimate={false} />}
+          {error && step === 'photo' && <Notice tone="danger">{t(error)}</Notice>}
+          {photo && photoCheck.state.status === 'checking' && (
+            <Button busy disabled>
+              {t('photoCheck.checking')}
+            </Button>
+          )}
+          {photo && photoUsable(photoCheck.state) && (
+            <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => setStep('details')}>
+              {t('common.next')}
+            </Button>
+          )}
         </>
       )}
 

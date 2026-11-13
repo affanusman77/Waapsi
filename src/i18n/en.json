@@ -521,7 +521,8 @@
     "optional": "Optional",
     "ageHeard": "AI heard: {n} years old.",
     "fixErrors": "Some details need fixing. Check the red messages above.",
-    "looksRight": "Details are correct, continue"
+    "looksRight": "Details are correct, continue",
+    "badgePhoto": "From photo"
   },
   "geofence": {
     "title": "Missing children within {km} km ({n})",
@@ -536,5 +537,25 @@
     "minAgo": "{n} min ago",
     "hAgo": "{n} h ago",
     "responders": "{n} safe points alerted"
+  },
+  "photoCheck": {
+    "checking": "Checking the photo…",
+    "ok": "Clear photo",
+    "suggests": "The photo suggests: {what}. You will confirm this later.",
+    "ageRange": "about {a}–{b} years",
+    "adult": "This face looks like an adult. Make sure the photo is of the child.",
+    "retake": "Please retake the photo.",
+    "remove": "Remove this photo",
+    "unavailable": "Photo check is not available right now. You can continue.",
+    "ageWide": "The photo suggests about {a}–{b} years, which is not clear enough. Please choose the age.",
+    "ageUnknown": "We couldn't tell the age from the photo or the voice note. Please choose.",
+    "why_no_face": "We couldn't find a face in this photo.",
+    "why_several_faces": "This photo has more than one face. Take it with only the child in front of the camera.",
+    "why_too_small": "The face is too small or too far away. Move closer.",
+    "why_blurry": "This photo is blurry. Hold the phone still.",
+    "why_too_dark": "This photo is too dark. Move to a brighter place.",
+    "why_too_bright": "This photo is too bright. Avoid direct sunlight or flash.",
+    "why_turned_away": "The face is turned away. Ask the child to look at the camera.",
+    "why_not_clear": "The face isn't clear enough."
   }
 }

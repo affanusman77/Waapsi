@@ -40,6 +40,19 @@ async function rekognition<T>(target: 'DetectFaces' | 'CompareFaces', body: unkn
 const detectFaces = async (b64: string) =>
   (await rekognition<{ FaceDetails?: DetectedFace[] }>('DetectFaces', { Image: { Bytes: b64 }, Attributes: ['DEFAULT'] })).FaceDetails ?? []
 
+/** DetectFaces with every attribute (age range, gender, quality, pose): used by photo-check. */
+export const detectFacesAll = async (b64: string) =>
+  (await rekognition<{ FaceDetails?: DetectedFace[] }>('DetectFaces', { Image: { Bytes: b64 }, Attributes: ['ALL'] })).FaceDetails ?? []
+
+/** Downloads a photo from a bucket as base64 (Rekognition's 5 MB limit applies). */
+export async function photoBytes(admin: SupabaseClient, bucket: string, path: string): Promise<string> {
+  const { data, error } = await admin.storage.from(bucket).download(path)
+  if (error || !data) throw new Error(`photo download failed: ${error?.message ?? 'empty'}`)
+  const bytes = new Uint8Array(await data.arrayBuffer())
+  if (bytes.length > 5 * 1024 * 1024) throw new Error('photo over 5 MB (Rekognition limit)')
+  return toBase64(bytes)
+}
+
 /** Highest similarity (0–100) between the main face in `source` and any face in `target`. */
 async function compareFaces(source: string, target: string): Promise<number> {
   const r = await rekognition<{ FaceMatches?: Array<{ Similarity?: number }> }>('CompareFaces', {

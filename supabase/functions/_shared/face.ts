@@ -13,6 +13,35 @@ export type DetectedFace = {
   Confidence?: number
   Pose?: { Yaw?: number; Pitch?: number; Roll?: number }
   Quality?: { Brightness?: number; Sharpness?: number }
+  AgeRange?: { Low?: number; High?: number } // only with Attributes ['ALL']
+  Gender?: { Value?: 'Male' | 'Female'; Confidence?: number }
+}
+
+/**
+ * What a clear photo suggests about the child (photo-check, 2026-11-12). A SUGGESTION for the review
+ * form only: whatever the reporter said wins, and boy/girl + age are always confirmed by a person.
+ * Age is "unclear" when Rekognition's range is wider than 6 years; gender only when ≥ 90% sure.
+ */
+export type PhotoEstimate = {
+  age_low: number | null
+  age_high: number | null
+  age_est: number | null // null = range too wide to pick an age band
+  gender: 'male' | 'female' | null
+  adult: boolean // the face looks 18+ (probably not the child)
+}
+
+export function photoEstimate(face: DetectedFace): PhotoEstimate {
+  const lo = face.AgeRange?.Low
+  const hi = face.AgeRange?.High
+  const known = typeof lo === 'number' && typeof hi === 'number'
+  const g = face.Gender
+  return {
+    age_low: known ? lo : null,
+    age_high: known ? hi : null,
+    age_est: known && hi - lo <= 6 ? Math.round((lo + hi) / 2) : null,
+    gender: g?.Value && (g.Confidence ?? 0) >= 90 ? (g.Value === 'Female' ? 'female' : 'male') : null,
+    adult: known && lo >= 18,
+  }
 }
 
 export type UnclearWhy =

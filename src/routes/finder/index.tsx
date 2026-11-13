@@ -16,6 +16,7 @@ import {
   type AutofillResult,
 } from '../../components/Autofill'
 import { RequireRole, SignedInAs } from '../../components/RequireRole'
+import { PhotoCheckNotice, photoUsable, usePhotoCheck } from '../../components/PhotoCheck'
 import { Notice, PageHeader, ProgressDots } from '../../components/ui'
 import type { PickedLocation } from '../../components/LocationPicker'
 import { useI18n } from '../../i18n'
@@ -98,6 +99,8 @@ function FinderFlow() {
   const [reviewErrors, setReviewErrors] = useState<ReviewErrors>({})
   const tracking = useAutofillTracking()
   const analysedKey = useRef<string | null>(null)
+  const photoCheck = usePhotoCheck()
+  const [fromPhoto, setFromPhoto] = useState<Set<string>>(new Set())
   const voiceVersion = useRef(0)
 
   // Uploads start the moment media is captured, so "Send" only waits for whatever is left.
@@ -111,8 +114,9 @@ function FinderFlow() {
       setPhoto(b)
       uploads.current.photo = uploadMedia('case-photos', b)
       uploads.current.photo.catch(() => {}) // surfaced on submit
+      void photoCheck.check(uploads.current.photo) // one clear face? (retake if not)
     })
-  }, [])
+  }, [photoCheck.check])
   const onVoice = useCallback((b: Blob | null) => {
     setVoice(b)
     voiceVersion.current++
@@ -128,11 +132,16 @@ function FinderFlow() {
     window.scrollTo({ top: 0 })
   }
 
+  // The voice/text wins; the photo only fills boy/girl and age when nothing was said about them.
   function applyFields(f: AutoFields) {
+    const est = photoCheck.state.status === 'ok' ? photoCheck.state.estimate : null
+    const photoGender = !f.gender && est?.gender ? est.gender : null
+    const photoAge = f.age_est === null && est?.age_est != null ? est.age_est : null
+    setFromPhoto(new Set([photoGender && 'gender', photoAge !== null && 'ageBand'].filter(Boolean) as string[]))
     tracking.apply(
       {
-        gender: f.gender,
-        ageBand: bandOf(f.age_est),
+        gender: f.gender ?? photoGender,
+        ageBand: bandOf(f.age_est ?? photoAge),
         child_name: f.child_name,
         father_name: f.father_name,
         top_color: f.top_color,
@@ -158,7 +167,10 @@ function FinderFlow() {
     setError(null)
     const typed = text.trim()
     if (typed && (typed.match(/\p{L}/gu) ?? []).length < 3) return setError('autofill.typeMore')
-    if (!voice && !typed) return go('review')
+    if (!voice && !typed) {
+      applyFields(EMPTY_FIELDS) // the photo's suggestions still help
+      return go('review')
+    }
     const key = `${voice ? voiceVersion.current : 0}|${typed}`
     if (key === analysedKey.current) return go('review')
     setAnalysing(true)
@@ -182,6 +194,7 @@ function FinderFlow() {
       }
       // AI unreachable: the finder fills the form in by hand; the voice note is still sent.
       setAi({ ai_status: 'failed', text: null, summary_en: null, summary_ur: null, fields: EMPTY_FIELDS, reason: null })
+      applyFields(EMPTY_FIELDS)
       go('review')
     } finally {
       setAnalysing(false)
@@ -259,6 +272,8 @@ function FinderFlow() {
     setAi(null)
     setReviewErrors({})
     tracking.reset()
+    photoCheck.reset()
+    setFromPhoto(new Set())
     analysedKey.current = null
     setVoice(null)
     setText('')
@@ -285,8 +300,14 @@ function FinderFlow() {
         <section className="space-y-5">
           <PageHeader title={t('finder.photo.title')} lead={t('finder.photo.lead')} />
           <PhotoCapture value={photo} onChange={onPhoto} label={t('finder.photo.take')} />
+          {photo && <PhotoCheckNotice state={photoCheck.state} />}
           {error && <Notice tone="danger">{t(error)}</Notice>}
-          {photo && (
+          {photo && photoCheck.state.status === 'checking' && (
+            <Button busy disabled>
+              {t('photoCheck.checking')}
+            </Button>
+          )}
+          {photo && photoUsable(photoCheck.state) && (
             <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => go('voice')}>
               {t('common.next')}
             </Button>
@@ -346,7 +367,7 @@ function FinderFlow() {
         <section className="space-y-6">
           <PageHeader title={t('autofill.reviewTitle')} lead={ai?.summary_en ? t('autofill.reviewLead') : undefined} />
           <AutofillSummary result={ai} />
-          <ChoiceGroup legend={t('finder.about.gender')} ai={aiHas('gender')} error={reviewErrors.gender}>
+          <ChoiceGroup legend={t('finder.about.gender')} ai={aiHas('gender') && (fromPhoto.has('gender') ? 'photo' : true)} error={reviewErrors.gender}>
             <div className="grid grid-cols-2 gap-3">
               {(['male', 'female'] as const).map((g) => (
                 <Choice
@@ -363,7 +384,7 @@ function FinderFlow() {
               ))}
             </div>
           </ChoiceGroup>
-          <ChoiceGroup legend={t('finder.about.age')} ai={aiHas('ageBand')} error={reviewErrors.ageBand}>
+          <ChoiceGroup legend={t('finder.about.age')} ai={aiHas('ageBand') && (fromPhoto.has('ageBand') ? 'photo' : true)} error={reviewErrors.ageBand}>
             <div className="grid grid-cols-3 gap-3">
               {(['under4', '4to8', '9plus'] as const).map((a) => (
                 <Choice
@@ -381,6 +402,7 @@ function FinderFlow() {
               ))}
             </div>
             {ageExact !== null && ageBand === bandOf(ageExact) && <p className="mt-2 text-ink-soft">{t('autofill.ageHeard', { n: ageExact })}</p>}
+            {!ageBand && <AgeUnclearHint state={photoCheck.state} />}
           </ChoiceGroup>
           {gender === 'female' && <Notice>{t('finder.about.girlNote', { desk: t('brand.womenDesk') })}</Notice>}
           {ageBand === 'under4' && <Notice>{t('finder.about.under4Note')}</Notice>}
@@ -467,6 +489,17 @@ function FinderFlow() {
         </>
       )}
     </div>
+  )
+}
+
+/** Shown when neither the voice note nor the photo gave a usable age: the finder must choose. */
+function AgeUnclearHint({ state }: { state: ReturnType<typeof usePhotoCheck>['state'] }) {
+  const { t } = useI18n()
+  const e = state.status === 'ok' ? state.estimate : null
+  return (
+    <p className="mt-2 font-semibold text-terracotta">
+      {e && e.age_low !== null && e.age_high !== null ? t('photoCheck.ageWide', { a: e.age_low, b: e.age_high }) : t('photoCheck.ageUnknown')}
+    </p>
   )
 }
 

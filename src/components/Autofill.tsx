@@ -104,13 +104,13 @@ export function useAutofillTracking() {
   }
 }
 
-export function AiBadge({ show }: { show: boolean }) {
+export function AiBadge({ show, photo }: { show: boolean; photo?: boolean }) {
   const { t } = useI18n()
   if (!show) return null
   return (
     <span className="ms-2 inline-flex items-center gap-1 rounded-full bg-sand-deep px-2 py-0.5 align-middle text-xs font-bold text-ink">
       <Sparkles className="size-3.5 text-terracotta" aria-hidden />
-      {t('autofill.badge')}
+      {photo ? t('autofill.badgePhoto') : t('autofill.badge')}
     </span>
   )
 }
@@ -165,14 +165,14 @@ export function TextField({
 }
 
 /** Required-choice group (boy/girl, age band) with an AI badge and an inline error. */
-export function ChoiceGroup({ legend, ai, error, children }: { legend: string; ai?: boolean; error?: string | null; children: ReactNode }) {
+export function ChoiceGroup({ legend, ai, error, children }: { legend: string; ai?: boolean | 'photo'; error?: string | null; children: ReactNode }) {
   const { t } = useI18n()
   return (
     <fieldset aria-invalid={!!error}>
       <legend className="mb-3 text-lg font-bold">
         {legend}
         <span className="text-danger" aria-hidden> *</span>
-        <AiBadge show={!!ai} />
+        <AiBadge show={!!ai} photo={ai === 'photo'} />
       </legend>
       {children}
       {error && <p className="mt-2 font-semibold text-danger">{t(error)}</p>}

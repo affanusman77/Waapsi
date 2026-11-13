@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assessPhoto, faceBand, faceReason, keepFaceReason, type DetectedFace } from '../supabase/functions/_shared/face.ts'
+import { assessPhoto, faceBand, faceReason, keepFaceReason, photoEstimate, type DetectedFace } from '../supabase/functions/_shared/face.ts'
 
 const clear: DetectedFace = {
   BoundingBox: { Width: 0.3, Height: 0.4, Left: 0.3, Top: 0.2 },
@@ -79,5 +79,23 @@ describe('keepFaceReason', () => {
   it('leaves reasons alone when there was no face result', () => {
     expect(keepFaceReason(fresh, [{ factor: 'age' }])).toEqual(fresh)
     expect(keepFaceReason(fresh, null)).toEqual(fresh)
+  })
+})
+
+describe('photoEstimate (photo-check suggestions for the review form)', () => {
+  it('a narrow age range gives an age; a confident gender is used', () => {
+    const e = photoEstimate({ AgeRange: { Low: 5, High: 9 }, Gender: { Value: 'Male', Confidence: 97 } })
+    expect(e).toEqual({ age_low: 5, age_high: 9, age_est: 7, gender: 'male', adult: false })
+  })
+  it('a wide age range is "unclear" (person must choose); an unsure gender is left empty', () => {
+    const e = photoEstimate({ AgeRange: { Low: 2, High: 12 }, Gender: { Value: 'Female', Confidence: 70 } })
+    expect(e.age_est).toBeNull()
+    expect(e.gender).toBeNull()
+  })
+  it('flags an adult face', () => {
+    expect(photoEstimate({ AgeRange: { Low: 24, High: 30 } }).adult).toBe(true)
+  })
+  it('no attributes -> nothing suggested', () => {
+    expect(photoEstimate({})).toEqual({ age_low: null, age_high: null, age_est: null, gender: null, adult: false })
   })
 })
