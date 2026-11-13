@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { ArrowLeft, ArrowRight, CircleCheck, PenLine } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CircleCheck, PenLine, UserPlus } from 'lucide-react'
 import { Button } from '../../components/Button'
 import { PhotoCapture } from '../../components/PhotoCapture'
 import { ColourPicker } from '../../components/CaseCard'
@@ -10,6 +10,7 @@ import { useI18n } from '../../i18n'
 import { callFn, errorKey } from '../../lib/api'
 import { compressImage, uploadMedia } from '../../lib/media'
 import { MyCases } from '../parent'
+import { nameError } from '../../components/Autofill'
 import { brand } from '../../config/brand'
 
 const GATE = { lat: 30.2002, lng: 71.469 } // Shrine Gate (demo event gate)
@@ -39,7 +40,21 @@ function CheckinFlow() {
 
   const onPhoto = useCallback((f: File | null) => f && void compressImage(f).then(setPhoto), [])
 
+  function another() {
+    setPhoto(null)
+    setName('')
+    setAge('')
+    setGender(null)
+    setTop(null)
+    setError(null)
+    setStep('photo')
+    window.scrollTo({ top: 0 })
+  }
+
   async function submit() {
+    const n = name.trim() ? nameError(name) : 'autofill.needName'
+    if (n) return setError(n)
+    if (age !== '' && Number(age) > 17) return setError('autofill.needAgeNumber')
     setBusy(true)
     setError(null)
     try {
@@ -93,6 +108,11 @@ function CheckinFlow() {
           <ColourPicker label={t('checkin.topColour')} value={top} onChange={setTop} />
           {error && <Notice tone="danger">{t(error)}</Notice>}
           <Button busy={busy} disabled={!name.trim()} onClick={() => void submit()}>{t('checkin.save')}</Button>
+          {!busy && (
+            <button type="button" onClick={() => setStep('photo')} className="inline-flex min-h-11 items-center gap-2 font-semibold">
+              {dir === 'rtl' ? <ArrowRight className="size-5" aria-hidden /> : <ArrowLeft className="size-5" aria-hidden />} {t('common.back')}
+            </button>
+          )}
         </>
       )}
 
@@ -104,6 +124,9 @@ function CheckinFlow() {
             <PenLine className="size-8 shrink-0 text-terracotta" aria-hidden />
             <p className="text-lg font-bold">{t('checkin.wristReminder')}</p>
           </div>
+          <Button variant="secondary" icon={<UserPlus className="size-6" aria-hidden />} onClick={another}>
+            {t('checkin.another')}
+          </Button>
         </section>
       )}
 

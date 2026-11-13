@@ -5,6 +5,8 @@ import { assertCanConfirm, loadMatch } from '../_shared/access.ts'
 import { audit } from '../_shared/audit.ts'
 import { canTransition, transition, type CaseKind, type CaseStatus } from '../_shared/state.ts'
 import { supabaseStore } from '../_shared/store.ts'
+import { isDirect } from '../_shared/custody.ts'
+import { foundReadyForMatch } from '../_shared/pipeline.ts'
 
 Deno.serve(
   handle(async (req, body) => {
@@ -18,10 +20,20 @@ Deno.serve(
 
     const store = supabaseStore(admin)
     const actor = { type: 'human' as const, id: caller.id }
-    const as = (c: typeof m.found) => ({ id: c.id, kind: c.kind as CaseKind, status: c.status as CaseStatus })
+    const as = (c: typeof m.found) => ({ id: c.id, kind: c.kind as CaseKind, status: c.status as CaseStatus, direct: c.kind === 'found' && isDirect(c) })
 
     if (decision === 'confirm') {
-      // The child must be at the safe point (found case `matched`) before anyone is sent there.
+      // A side that police took over (or a boy waiting with the finder, R13) is moved back to
+      // `matched` first, if the custody rules allow it.
+      for (const side of [m.found, m.lost]) {
+        if (side.status === 'matched') continue
+        const ready = side.kind !== 'found' || (await foundReadyForMatch(admin, side))
+        if (ready && canTransition(side.kind as CaseKind, side.status as CaseStatus, 'match_suggested', { type: 'system' })) {
+          const next = await transition(store, as(side), 'match_suggested', { type: 'system' }, { match_id: m.id, reason: 'confirm_after_takeover' })
+          side.status = next.status
+        }
+      }
+      // The child must be with a safe point (or a boy 4+ with the finder, R13) before anyone is sent there.
       if (m.found.status !== 'matched') throw new HttpError(409, 'not_at_safe_point')
       if (m.lost.status !== 'matched') throw new HttpError(409, 'other_side_not_ready')
       const { data: upd } = await admin.from('matches').update({ status: 'finder_confirmed' }).eq('id', m.id).eq('status', 'suggested').select('id')
@@ -66,10 +78,10 @@ async function revertIfNoOpenSuggestion(
   caseId: string,
   actor: { type: 'system' },
 ) {
-  const { data: c } = await admin.from('cases').select('id, kind, status').eq('id', caseId).single()
+  const { data: c } = await admin.from('cases').select('id, kind, status, gender, age_est, flags, safe_point_id').eq('id', caseId).single()
   if (!c || c.status !== 'matched') return
   const col = c.kind === 'found' ? 'found_case_id' : 'lost_case_id'
   const { count } = await admin.from('matches').select('id', { count: 'exact', head: true }).eq(col, c.id).eq('status', 'suggested')
   if (count) return
-  await transition(store, c as { id: string; kind: CaseKind; status: CaseStatus }, 'match_withdrawn', actor).catch(() => {})
+  await transition(store, { id: c.id, kind: c.kind as CaseKind, status: c.status as CaseStatus, direct: c.kind === 'found' && isDirect(c) }, 'match_withdrawn', actor).catch(() => {})
 }

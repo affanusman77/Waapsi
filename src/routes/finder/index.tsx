@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, CircleCheck, Footprints, Hand, Keyboard, MapPin, Send, ShieldCheck, Sparkles } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CircleCheck, ClipboardCheck, Footprints, Hand, Keyboard, MapPin, Send, ShieldCheck, Sparkles } from 'lucide-react'
 import { Button } from '../../components/Button'
 import { PhotoCapture } from '../../components/PhotoCapture'
 import { VoiceRecorder } from '../../components/VoiceRecorder'
@@ -26,6 +26,8 @@ import { useSafePoints } from '../../lib/useSafePoints'
 import { shortId, useLiveCase } from '../../lib/useLiveCase'
 import { CaseCard, ColourPicker } from '../../components/CaseCard'
 import { MatchReview } from '../../components/MatchReview'
+import { HandoverChecklist } from '../../components/HandoverChecklist'
+import { EscalationCountdown } from '../../components/CaseBits'
 import { Chat } from '../../components/Chat'
 import { ReunitedMoment } from '../../components/Reunited'
 import { useFinderMatches } from '../../lib/useMatches'
@@ -450,7 +452,7 @@ function FinderFlow() {
       {step === 'card' && caseId && <CardStep caseId={caseId} onNext={() => go('safepoint')} />}
 
       {step === 'safepoint' && caseId && (
-        <ChooseSafePoint caseId={caseId} gender={gender} from={location} onChosen={() => go('handover')} />
+        <ChooseSafePoint caseId={caseId} gender={gender} from={location} onChosen={() => go('handover')} onNew={startOver} />
       )}
 
       {step === 'handover' && caseId && (
@@ -483,16 +485,25 @@ function Choice({ selected, onClick, children }: { selected: boolean; onClick: (
   )
 }
 
+/** R13 (mirrors _shared/custody.ts): only a boy whose age is known to be 4+ may stay with the finder. */
+function directEligible(c: { gender: string | null; age_est: number | null; flags: string[] | null }) {
+  return c.gender === 'male' && c.age_est !== null && c.age_est >= 4 && !(c.flags ?? []).includes('under_4')
+}
+const isWithFinder = (c: { flags: string[] | null; safe_point_id: string | null }) => (c.flags ?? []).includes('with_finder') && !c.safe_point_id
+const inCustody = (c: { flags: string[] | null }) => (c.flags ?? []).includes('in_custody')
+
 function ChooseSafePoint({
   caseId,
   gender,
   from,
   onChosen,
+  onNew,
 }: {
   caseId: string
   gender: Gender
   from: PickedLocation | null
   onChosen: () => void
+  onNew: () => void
 }) {
   const { t, lang } = useI18n()
   const { state } = useSafePoints()
@@ -501,17 +512,19 @@ function ChooseSafePoint({
   const origin = from ?? (live?.lat != null && live?.lng != null ? { lat: live.lat, lng: live.lng } : null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const afterTakeover = live?.status === 'escalated_police'
+  const canWait = !!live && live.status === 'reported' && !live.safe_point_id && directEligible(live)
 
   const options = useMemo(
     () => (state.status === 'ready' && origin ? nearestSafePoints(state.points, origin, g, 3) : []),
     [state, origin, g],
   )
 
-  async function choose(id: string) {
+  async function run(id: string, body: Record<string, unknown>) {
     setBusyId(id)
     setError(null)
     try {
-      await callFn('case-transition', { case_id: caseId, event: 'safe_point_chosen', safe_point_id: id })
+      await callFn('case-transition', { case_id: caseId, ...body })
       onChosen()
     } catch (e) {
       setError(errorKey(e))
@@ -522,12 +535,16 @@ function ChooseSafePoint({
 
   return (
     <section className="space-y-5">
-      <Notice>
-        <span className="flex items-center gap-3">
-          <ShieldCheck className="size-6 shrink-0 text-reunited" aria-hidden />
-          {t('finder.safepoint.reported', { id: shortId(caseId) })}
-        </span>
-      </Notice>
+      {afterTakeover ? (
+        <Notice tone="danger">{t('finder.safepoint.afterTakeover')}</Notice>
+      ) : (
+        <Notice>
+          <span className="flex items-center gap-3">
+            <ShieldCheck className="size-6 shrink-0 text-reunited" aria-hidden />
+            {t('finder.safepoint.reported', { id: shortId(caseId) })}
+          </span>
+        </Notice>
+      )}
       <PageHeader title={t('finder.safepoint.title')} lead={g === 'female' ? t('finder.safepoint.girlsOnly', { desk: t('brand.womenDesk') }) : undefined} />
       {state.status === 'loading' && <div className="h-40 animate-pulse rounded-2xl bg-sand" />}
       {state.status === 'error' && <Notice tone="danger">{t('admin.loadError')}</Notice>}
@@ -552,14 +569,32 @@ function ChooseSafePoint({
               variant={i === 0 ? 'primary' : 'secondary'}
               busy={busyId === p.id}
               disabled={!!busyId}
-              onClick={() => void choose(p.id)}
+              onClick={() => void run(p.id, { event: 'safe_point_chosen', safe_point_id: p.id })}
             >
               {t('finder.safepoint.takeHere')}
             </Button>
           </li>
         ))}
       </ul>
+
+      {/* R13: a boy aged 4+ may stay with the finder for up to 1 hour while we look for his family. */}
+      {canWait && (
+        <div className="space-y-2 rounded-2xl border-2 border-dashed border-sand-deep p-4">
+          <p className="font-bold">{t('finder.safepoint.waitTitle')}</p>
+          <p className="text-ink-soft">{t('finder.safepoint.waitLead')}</p>
+          <Button variant="secondary" icon={<Hand className="size-6" aria-hidden />} busy={busyId === 'wait'} disabled={!!busyId} onClick={() => void run('wait', { event: 'keep_with_finder' })}>
+            {t('finder.safepoint.waitButton')}
+          </Button>
+        </div>
+      )}
       {error && <Notice tone="danger">{t(error)}</Notice>}
+
+      <div className="border-t border-sand-deep pt-5">
+        <Button variant="secondary" icon={<Hand className="size-6" aria-hidden />} onClick={onNew}>
+          {t('finder.handover.newReport')}
+        </Button>
+        <p className="mt-2 text-sm text-ink-soft">{t('finder.handover.newReportNote')}</p>
+      </div>
     </section>
   )
 }
@@ -590,13 +625,18 @@ function Handover({ caseId, onChoose }: { caseId: string; onChoose: () => void }
   const live = useLiveCase(caseId)
   const { state } = useSafePoints()
   const { rows: matches, reload } = useFinderMatches([caseId])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const sp = state.status === 'ready' ? state.points.find((p) => p.id === live?.safe_point_id) : undefined
   const spName = sp ? (lang === 'ur' && sp.name_ur ? sp.name_ur : sp.name_en) : '…'
   const under4 = live?.flags?.includes('under_4')
+  const direct = !!live && isWithFinder(live)
 
-  // A resumed case that never got a safe point goes back to choosing one.
+  // Still needs a safe point: a new case nobody chose one for (and the boy isn't staying with the
+  // finder), or a child still with the finder after the police took over (R13: bring him in now).
   useEffect(() => {
-    if (live && live.status === 'reported' && !live.safe_point_id) onChoose()
+    if (!live || live.safe_point_id) return
+    if ((live.status === 'reported' && !isWithFinder(live)) || live.status === 'escalated_police') onChoose()
   }, [live, onChoose])
 
   if (!live) return <div className="h-40 animate-pulse rounded-2xl bg-sand" aria-label={t('common.loading')} />
@@ -604,6 +644,19 @@ function Handover({ caseId, onChoose }: { caseId: string; onChoose: () => void }
   const s = live.status
   const suggested = matches.find((m) => m.match_status === 'suggested')
   const confirmed = matches.find((m) => m.match_status === 'finder_confirmed' || m.match_status === 'reunited')
+
+  async function startCheck(matchId: string) {
+    setBusy(true)
+    setError(null)
+    try {
+      await callFn('handover', { match_id: matchId, action: 'start' })
+      await reload()
+    } catch (e) {
+      setError(errorKey(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (s === 'reunited' && live.reunited_at) {
     return (
@@ -617,15 +670,65 @@ function Handover({ caseId, onChoose }: { caseId: string; onChoose: () => void }
   if (s === 'handover_blocked') {
     return (
       <section className="space-y-5">
-        <Notice tone="danger">{t('finder.handover.blocked')}</Notice>
+        <Notice tone="danger">{direct ? t('finder.handover.blockedDirect') : t('finder.handover.blocked')}</Notice>
       </section>
     )
   }
 
-  if (s === 'reported' || s === 'awaiting_safe_point') {
+  if (s === 'closed_no_match') {
+    return (
+      <section className="space-y-5">
+        <PageHeader title={t('finder.handover.searching')} />
+        <Notice>{t('finder.handover.closedPolice')}</Notice>
+      </section>
+    )
+  }
+
+  // R13: the boy is staying with the finder while we look for the family.
+  if (direct) {
+    return (
+      <section className="space-y-5">
+        <PageHeader title={t('finder.handover.withYouTitle')} lead={t('finder.handover.withYouLead')} />
+        <p className="flex flex-wrap items-center gap-2 rounded-xl bg-sand p-3 font-semibold">
+          <EscalationCountdown escalateAt={live.escalate_at} status={s} />
+        </p>
+        {suggested ? (
+          <MatchReview m={suggested} onDecided={() => void reload()} />
+        ) : confirmed && s === 'verifying' ? (
+          <>
+            <Notice>{t('finder.handover.directCheck')}</Notice>
+            <HandoverChecklist matchId={confirmed.match_id} girl={false} under4={false} onDone={() => void reload()} />
+          </>
+        ) : confirmed ? (
+          <>
+            <Notice>{t('finder.handover.directFamilyComing')}</Notice>
+            <Button icon={<ClipboardCheck className="size-6" aria-hidden />} busy={busy} onClick={() => void startCheck(confirmed.match_id)}>
+              {t('sp.startCheck')}
+            </Button>
+            <Chat matchId={confirmed.match_id} open={confirmed.match_status === 'finder_confirmed'} />
+          </>
+        ) : (
+          <>
+            <PageHeader title={t('finder.handover.searching')} lead={t('finder.handover.thanks')} />
+            <CaseCard c={live} />
+          </>
+        )}
+        {error && <Notice tone="danger">{t(error)}</Notice>}
+        {!confirmed && (
+          <Button variant="secondary" icon={<MapPin className="size-6" aria-hidden />} onClick={onChoose}>
+            {t('finder.handover.takeNow')}
+          </Button>
+        )}
+      </section>
+    )
+  }
+
+  // On the way to the safe point (also after a police takeover, with one more hour, R13).
+  if (s === 'reported' || s === 'awaiting_safe_point' || (s === 'escalated_police' && !inCustody(live) && !suggested && !confirmed)) {
     return (
       <section className="space-y-5">
         <PageHeader title={t('finder.handover.walkTitle', { place: spName })} lead={t('finder.handover.walkLead')} />
+        {s === 'escalated_police' && <Notice tone="danger">{t('finder.handover.escalatedWalk')}</Notice>}
         <div className="flex items-center gap-4 rounded-2xl border-2 border-sand-deep bg-sand p-5">
           <Hand className="size-10 shrink-0 text-terracotta" aria-hidden />
           <p className="text-lg font-semibold">{t('finder.handover.waiting', { id: shortId(caseId) })}</p>

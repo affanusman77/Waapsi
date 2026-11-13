@@ -9,6 +9,7 @@ export type CaseLite = {
   reporter_id: string | null
   safe_point_id: string | null
   gender: 'male' | 'female' | null
+  age_est: number | null
   flags: string[]
   created_at: string
 }
@@ -17,7 +18,7 @@ export async function loadCase(admin: SupabaseClient, id: unknown): Promise<Case
   if (typeof id !== 'string') throw new HttpError(400, 'case_id_required')
   const { data } = await admin
     .from('cases')
-    .select('id, kind, status, reporter_id, safe_point_id, gender, flags, created_at')
+    .select('id, kind, status, reporter_id, safe_point_id, gender, age_est, flags, created_at')
     .eq('id', id)
     .maybeSingle()
   if (!data) throw new HttpError(404, 'case_not_found')

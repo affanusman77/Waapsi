@@ -6,6 +6,7 @@ import { isStaffAt, loadMatch } from '../_shared/access.ts'
 import { audit } from '../_shared/audit.ts'
 import { transition, type CaseKind, type CaseStatus } from '../_shared/state.ts'
 import { supabaseStore } from '../_shared/store.ts'
+import { isDirect } from '../_shared/custody.ts'
 
 type Checklist = {
   gallery_photo_match?: boolean
@@ -20,7 +21,9 @@ Deno.serve(
     const admin = adminClient()
     const caller = await getCaller(req, admin)
     const m = await loadMatch(admin, body.match_id)
-    if (caller.role !== 'admin' && !isStaffAt(caller, m.found.safe_point_id)) throw new HttpError(403, 'staff_only')
+    // R13: a boy 4+ who stayed with the finder is verified by the finder, with the same checklist.
+    const direct = isDirect(m.found) && m.found.reporter_id === caller.id && m.lost.gender !== 'female'
+    if (caller.role !== 'admin' && !direct && !isStaffAt(caller, m.found.safe_point_id)) throw new HttpError(403, 'staff_only')
 
     const store = supabaseStore(admin)
     const actor = { type: 'human' as const, id: caller.id }

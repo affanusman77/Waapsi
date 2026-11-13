@@ -140,7 +140,11 @@
       "girlsOnly": "Only Behan Desk points (women staff) are shown for a girl.",
       "none": "No suitable safe point nearby. Stay with the child; police have been informed.",
       "walk": "{n} min walk",
-      "takeHere": "Take the child here"
+      "takeHere": "Take the child here",
+      "afterTakeover": "An hour has passed and the police have taken over. Please take the child to a safe point now. You have one more hour.",
+      "waitTitle": "Or wait here with him (boys aged 4 and over)",
+      "waitLead": "Stay in a busy, public place. If his family is found, you check them yourself with the same checklist. If not found within 1 hour, you will take him to a safe point.",
+      "waitButton": "Wait here with the child (up to 1 hour)"
     },
     "handover": {
       "walkTitle": "Walk to {place}",
@@ -158,7 +162,15 @@
       "verifying": "The family is with the safe point staff now. They're checking everything.",
       "parentComing": "The family is on their way to {place}.",
       "searching": "We're looking for the family",
-      "newReportNote": "This report keeps going. You can open it again from \"Your reports\"."
+      "newReportNote": "This report keeps going. You can open it again from \"Your reports\".",
+      "withYouTitle": "The child is with you",
+      "withYouLead": "Stay in a busy, public place. We are looking for his family. Police are informed.",
+      "directFamilyComing": "The family is coming to you. Meet in a public place and use the chat. When they arrive, check them before handing the child over.",
+      "directCheck": "Check every item yourself. If anything feels wrong, tap “Something is wrong”: keep the child and take him to a safe point.",
+      "takeNow": "Take him to a safe point now",
+      "escalatedWalk": "Police have taken over. Please reach the safe point within the next hour.",
+      "blockedDirect": "The check failed. Keep the child with you and take him to the nearest safe point now. Police have been alerted.",
+      "closedPolice": "This case was handed to the police. They are continuing the search."
     },
     "card": {
       "title": "Check the details",
@@ -200,7 +212,8 @@
       "confirmed": "Finder confirmed",
       "goto": "Go to the safe point",
       "gotoPlace": "Go to {place}",
-      "reunited": "Reunited"
+      "reunited": "Reunited",
+      "meetFinder": "Meet the person who found your child (use the chat)"
     },
     "escalated": "Police have taken over the search. We're still matching.",
     "possibleExplain": "We may have found your child. The person with them is checking your photo now.",
@@ -224,7 +237,8 @@
       "hourAgo": "{n} h ago",
       "send": "Report missing",
       "privacy": "Police are informed automatically. Your number is never shown to anyone."
-    }
+    },
+    "closedPolice": "Your report is now with the police. They are continuing the search."
   },
   "checkin": {
     "title": "Today's photo",
@@ -238,7 +252,8 @@
     "doneLead": "If your child gets lost, open this page and tap \"My child is lost\".",
     "wristReminder": "Write your phone number on your child's wrist.",
     "active": "Today's photo is saved until {time}.",
-    "lostNow": "Mera bacha gum ho gaya"
+    "lostNow": "Mera bacha gum ho gaya",
+    "another": "Check in another child"
   },
   "sp": {
     "title": "Safe point",

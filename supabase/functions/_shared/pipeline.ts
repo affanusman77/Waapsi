@@ -11,6 +11,7 @@ import { canTransition, transition, type CaseKind, type CaseStatus } from './sta
 import { supabaseStore } from './store.ts'
 import { checkFaces } from './face-check.ts'
 import { keepFaceReason } from './face.ts'
+import { hasCustody, isDirect, type CustodyCase } from './custody.ts'
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined
 
@@ -201,13 +202,32 @@ export async function runMatching(admin: SupabaseClient, caseId: string): Promis
   return suggested
 }
 
-/** Moves both sides of a suggested match to `matched` if (and only if) the state machine allows it. */
+/** Did safe point staff ever accept this child? (flag since 2026-11-12; audit log for older cases) */
+export async function hadCustody(admin: SupabaseClient, c: { id: string; flags: string[] | null }): Promise<boolean> {
+  if (hasCustody(c)) return true
+  const { count } = await admin.from('audit_log').select('id', { count: 'exact', head: true }).eq('case_id', c.id).eq('action', 'case.safe_point_accepted')
+  return (count ?? 0) > 0
+}
+
+/**
+ * R10/R13: a found child may be matched only when a safe point holds them, or when a boy 4+ is
+ * staying with the finder (R13). After a police takeover, only a child already accepted somewhere.
+ */
+export async function foundReadyForMatch(admin: SupabaseClient, c: CustodyCase & { id: string; status: string }): Promise<boolean> {
+  if (c.status === 'at_safe_point') return true
+  if (c.status === 'reported') return isDirect(c)
+  if (c.status === 'escalated_police') return isDirect(c) || (await hadCustody(admin, c))
+  return false
+}
+
+/** Moves both sides of a suggested match to `matched` if (and only if) the state machine and custody rules allow it. */
 export async function applyMatchTransitions(admin: SupabaseClient, foundId: string, lostId: string, matchId: string) {
   const store = supabaseStore(admin)
   for (const id of [foundId, lostId]) {
-    const { data: row } = await admin.from('cases').select('id, kind, status').eq('id', id).single()
+    const { data: row } = await admin.from('cases').select('id, kind, status, gender, age_est, flags, safe_point_id').eq('id', id).single()
+    if (row && row.kind === 'found' && !(await foundReadyForMatch(admin, row))) continue
     if (row && canTransition(row.kind, row.status, 'match_suggested', { type: 'ai' })) {
-      await transition(store, row, 'match_suggested', { type: 'ai' }, { match_id: matchId }).catch(() => {})
+      await transition(store, { id: row.id, kind: row.kind, status: row.status }, 'match_suggested', { type: 'ai' }, { match_id: matchId }).catch(() => {})
     }
   }
 }

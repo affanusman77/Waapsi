@@ -527,12 +527,17 @@ function Tracker({ caseId, onBack }: { caseId: string; onBack: () => void }) {
               <li key={k} className={`flex items-center gap-3 rounded-xl p-3 ${i === stage ? 'bg-terracotta text-white' : i < stage ? 'bg-sand' : 'border-2 border-dashed border-sand-deep text-ink-soft'}`}>
                 <span className={`grid size-8 place-items-center rounded-full text-sm font-bold ${i <= stage ? 'bg-white/90 text-ink' : 'bg-sand-deep'}`}>{i + 1}</span>
                 <span className="font-bold">
-                  {k === 'goto' && spName ? t('parent.ladder.gotoPlace', { place: spName }) : t(`parent.ladder.${k}`)}
+                  {k === 'goto' && spName
+                    ? t('parent.ladder.gotoPlace', { place: spName })
+                    : k === 'goto' && m && !spName
+                      ? t('parent.ladder.meetFinder')
+                      : t(`parent.ladder.${k}`)}
                 </span>
               </li>
             ))}
           </ol>
           {s === 'escalated_police' && <Notice tone="danger">{t('parent.escalated')}</Notice>}
+          {s === 'closed_no_match' && <Notice>{t('parent.closedPolice')}</Notice>}
           {stage === 1 && <Notice>{t('parent.possibleExplain')}</Notice>}
           {stage >= 3 && spName && m?.safe_point_lat != null && (
             <a

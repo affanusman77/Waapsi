@@ -30,7 +30,12 @@ describe('allowed transitions', () => {
     ['found', 'verifying', 'handover_failed', human, 'handover_blocked'],
     ['found', 'reported', 'escalate', system, 'escalated_police'],
     ['found', 'at_safe_point', 'escalate', system, 'escalated_police'],
-    ['found', 'verifying', 'escalate', system, 'escalated_police'],
+    // after a police takeover the child can still be brought to / accepted at a safe point
+    ['found', 'escalated_police', 'safe_point_chosen', human, 'awaiting_safe_point'],
+    ['found', 'escalated_police', 'safe_point_accepted', human, 'at_safe_point'],
+    // R13: a boy 4+ staying with the finder can be matched (custody rules enforced in the pipeline)
+    ['found', 'reported', 'keep_with_finder', human, 'reported'],
+    ['found', 'reported', 'match_suggested', ai, 'matched'],
     ['found', 'escalated_police', 'match_suggested', system, 'matched'],
     ['found', 'escalated_police', 'close_no_match', human, 'closed_no_match'],
     ['lost', 'reported', 'match_suggested', ai, 'matched'],
@@ -48,6 +53,12 @@ describe('allowed transitions', () => {
     expect(nextState(kind, from, event, actor).status).toBe(to)
   })
 
+  it('R13: a direct (with-finder) rejection goes back to reported, a safe point one to at_safe_point', () => {
+    expect(nextState('found', 'matched', 'finder_rejected', human, { direct: true }).status).toBe('reported')
+    expect(nextState('found', 'matched', 'finder_rejected', human, { direct: false }).status).toBe('at_safe_point')
+    expect(nextState('found', 'matched', 'match_withdrawn', system, { direct: true }).status).toBe('reported')
+  })
+
   it('a check-in converts to a lost report, keeping status reported', () => {
     expect(nextState('checkin', 'reported', 'convert_to_lost', human)).toEqual({ kind: 'lost', status: 'reported' })
   })
@@ -57,7 +68,10 @@ describe('forbidden transitions throw', () => {
   const forbidden: Array<[CaseKind, CaseStatus, CaseEvent, Actor]> = [
     ['found', 'matched', 'handover_verified', human], // matched -> reunited directly (R3)
     ['found', 'matched', 'verification_started', human], // skipping finder confirmation
-    ['found', 'reported', 'match_suggested', ai], // child not at a safe point yet
+    ['found', 'verifying', 'escalate', system], // a handover under way is never interrupted
+    ['found', 'matched', 'escalate', system], // nor a match waiting for the finder
+    ['lost', 'finder_confirmed', 'escalate', system],
+    ['lost', 'reported', 'keep_with_finder', human], // only found children
     ['found', 'awaiting_safe_point', 'match_suggested', ai], // safe point hasn't accepted yet (R10)
     ['found', 'awaiting_safe_point', 'safe_point_accepted', ai], // only staff accept custody
     ['lost', 'reported', 'safe_point_accepted', human], // lost reports have no child to accept

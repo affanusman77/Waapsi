@@ -65,8 +65,11 @@ function Desk() {
 
   const ids = (cases ?? []).filter((c) => c.status !== 'awaiting_safe_point').map((c) => c.id)
   const { rows: matches, reload: reloadMatches } = useFinderMatches(ids)
-  const incoming = cases?.filter((c) => c.status === 'awaiting_safe_point') ?? []
-  const here = cases?.filter((c) => c.status !== 'awaiting_safe_point') ?? []
+  // On the way = not yet accepted (also a child still coming after a police takeover).
+  const onTheWay = (c: CaseRow) =>
+    c.status === 'awaiting_safe_point' || (c.status === 'escalated_police' && !c.flags?.includes('in_custody') && !matches.some((m) => m.found_case_id === c.id))
+  const incoming = cases?.filter(onTheWay) ?? []
+  const here = cases?.filter((c) => !onTheWay(c)) ?? []
 
   return (
     <div className="space-y-6">
@@ -152,7 +155,7 @@ function SpCase({ c, matches, onChange }: { c: CaseRow; matches: FinderMatch[]; 
       {(summary || c.transcript) && <p className="border-t border-sand-deep px-4 py-3 text-ink-soft">{summary ?? `“${c.transcript}”`}</p>}
 
       <div className="space-y-4 border-t border-sand-deep p-4 empty:hidden">
-        {c.status === 'awaiting_safe_point' && (
+        {(c.status === 'awaiting_safe_point' || (c.status === 'escalated_police' && !c.flags?.includes('in_custody') && !suggested && !confirmed)) && (
           <Button busy={busy} icon={<HandHeart className="size-6" aria-hidden />} onClick={() => void run('case-transition', { case_id: c.id, event: 'safe_point_accepted' })}>
             {t('sp.accept')}
           </Button>

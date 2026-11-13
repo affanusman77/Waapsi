@@ -30,6 +30,7 @@ export type CaseEvent =
   | 'expire' // tick: check-in older than 48h (R9)
   | 'convert_to_lost' // parent: "Mera bacha gum ho gaya" on a check-in
   | 'close_no_match' // admin closes an escalated case
+  | 'keep_with_finder' // R13: a boy aged 4+ stays with the finder for up to 1 hour
 
 export type Actor = { type: 'human' | 'ai' | 'system'; id?: string | null }
 
@@ -40,38 +41,41 @@ export const FINAL_STATUSES: ReadonlySet<CaseStatus> = new Set([
   'expired',
 ])
 
-type Rule = { from: CaseStatus | CaseStatus[]; to: CaseStatus; kinds: CaseKind[]; actors?: Actor['type'][] }
+// `direct`: the rule applies only to (true) / never to (false) a child staying with the finder (R13).
+type Rule = { from: CaseStatus | CaseStatus[]; to: CaseStatus; kinds: CaseKind[]; actors?: Actor['type'][]; direct?: boolean }
 
-const NON_FINAL_FOUND: CaseStatus[] = [
-  'reported',
-  'awaiting_safe_point',
-  'at_safe_point',
-  'matched',
-  'finder_confirmed',
-  'verifying',
-]
-const NON_FINAL_LOST: CaseStatus[] = ['reported', 'matched', 'finder_confirmed', 'verifying']
+/** Extra facts about a case some rules need. */
+export type TransitionContext = { direct?: boolean }
+
+// Police take over (R5) only while a child is still waiting for a match. A match or handover that is
+// already under way is never interrupted: that would break the finder's confirm and the staff check.
+const ESCALATABLE_FOUND: CaseStatus[] = ['reported', 'awaiting_safe_point', 'at_safe_point']
+const ESCALATABLE_LOST: CaseStatus[] = ['reported']
 
 // Note: `match_suggested` on a found case is only allowed once a safe point has ACCEPTED the child:
 // the safe point always sits between finder and parent (R10), and staff must be able to verify the handover.
 // Role checks (e.g. only sp_staff of that safe point may send safe_point_accepted) live in the edge functions.
 const RULES: Record<CaseEvent, Rule[]> = {
-  safe_point_chosen: [{ from: 'reported', to: 'awaiting_safe_point', kinds: ['found'], actors: ['human'] }],
+  // After a police takeover the finder can still bring the child to a safe point (and staff accept).
+  safe_point_chosen: [{ from: ['reported', 'escalated_police'], to: 'awaiting_safe_point', kinds: ['found'], actors: ['human'] }],
   safe_point_accepted: [
     // reported -> at_safe_point covers a child brought straight to the desk.
-    { from: ['reported', 'awaiting_safe_point'], to: 'at_safe_point', kinds: ['found'], actors: ['human'] },
+    { from: ['reported', 'awaiting_safe_point', 'escalated_police'], to: 'at_safe_point', kinds: ['found'], actors: ['human'] },
   ],
   match_suggested: [
-    { from: ['at_safe_point', 'escalated_police'], to: 'matched', kinds: ['found'] },
+    // 'reported' = a boy 4+ staying with the finder (R13); pipeline.foundReadyForMatch enforces who may.
+    { from: ['at_safe_point', 'escalated_police', 'reported'], to: 'matched', kinds: ['found'] },
     { from: ['reported', 'escalated_police'], to: 'matched', kinds: ['lost', 'checkin'] },
   ],
   finder_confirmed: [{ from: 'matched', to: 'finder_confirmed', kinds: ['found', 'lost', 'checkin'], actors: ['human'] }],
   finder_rejected: [
-    { from: 'matched', to: 'at_safe_point', kinds: ['found'], actors: ['human'] },
+    { from: 'matched', to: 'reported', kinds: ['found'], actors: ['human'], direct: true },
+    { from: 'matched', to: 'at_safe_point', kinds: ['found'], actors: ['human'], direct: false },
     { from: 'matched', to: 'reported', kinds: ['lost', 'checkin'], actors: ['human'] },
   ],
   match_withdrawn: [
-    { from: 'matched', to: 'at_safe_point', kinds: ['found'], actors: ['system'] },
+    { from: 'matched', to: 'reported', kinds: ['found'], actors: ['system'], direct: true },
+    { from: 'matched', to: 'at_safe_point', kinds: ['found'], actors: ['system'], direct: false },
     { from: 'matched', to: 'reported', kinds: ['lost', 'checkin'], actors: ['system'] },
   ],
   verification_started: [{ from: 'finder_confirmed', to: 'verifying', kinds: ['found', 'lost', 'checkin'], actors: ['human'] }],
@@ -79,12 +83,13 @@ const RULES: Record<CaseEvent, Rule[]> = {
   handover_verified: [{ from: 'verifying', to: 'reunited', kinds: ['found', 'lost', 'checkin'], actors: ['human'] }],
   handover_failed: [{ from: 'verifying', to: 'handover_blocked', kinds: ['found', 'lost', 'checkin'], actors: ['human'] }],
   escalate: [
-    { from: NON_FINAL_FOUND, to: 'escalated_police', kinds: ['found'], actors: ['system'] },
-    { from: NON_FINAL_LOST, to: 'escalated_police', kinds: ['lost'], actors: ['system'] },
+    { from: ESCALATABLE_FOUND, to: 'escalated_police', kinds: ['found'], actors: ['system'] },
+    { from: ESCALATABLE_LOST, to: 'escalated_police', kinds: ['lost'], actors: ['system'] },
   ],
   expire: [{ from: 'reported', to: 'expired', kinds: ['checkin'], actors: ['system'] }],
   convert_to_lost: [{ from: 'reported', to: 'reported', kinds: ['checkin'], actors: ['human'] }],
   close_no_match: [{ from: 'escalated_police', to: 'closed_no_match', kinds: ['found', 'lost'], actors: ['human'] }],
+  keep_with_finder: [{ from: 'reported', to: 'reported', kinds: ['found'], actors: ['human'] }],
 }
 
 export class InvalidTransitionError extends Error {
@@ -102,8 +107,10 @@ export class InvalidTransitionError extends Error {
 export type NextState = { kind: CaseKind; status: CaseStatus }
 
 /** Pure: computes the next state or throws InvalidTransitionError. */
-export function nextState(kind: CaseKind, status: CaseStatus, event: CaseEvent, actor: Actor): NextState {
-  const rule = RULES[event].find((r) => r.kinds.includes(kind) && ([] as CaseStatus[]).concat(r.from).includes(status))
+export function nextState(kind: CaseKind, status: CaseStatus, event: CaseEvent, actor: Actor, ctx: TransitionContext = {}): NextState {
+  const rule = RULES[event].find(
+    (r) => r.kinds.includes(kind) && ([] as CaseStatus[]).concat(r.from).includes(status) && (r.direct === undefined || r.direct === !!ctx.direct),
+  )
   if (!rule) throw new InvalidTransitionError(kind, status, event)
   if (rule.actors && !rule.actors.includes(actor.type)) {
     throw new InvalidTransitionError(kind, status, event, `actor '${actor.type}' may not do this`)
@@ -111,9 +118,9 @@ export function nextState(kind: CaseKind, status: CaseStatus, event: CaseEvent, 
   return { kind: event === 'convert_to_lost' ? 'lost' : kind, status: rule.to }
 }
 
-export function canTransition(kind: CaseKind, status: CaseStatus, event: CaseEvent, actor: Actor): boolean {
+export function canTransition(kind: CaseKind, status: CaseStatus, event: CaseEvent, actor: Actor, ctx: TransitionContext = {}): boolean {
   try {
-    nextState(kind, status, event, actor)
+    nextState(kind, status, event, actor, ctx)
     return true
   } catch {
     return false
@@ -151,13 +158,13 @@ export interface TransitionStore {
 
 export async function transition(
   store: TransitionStore,
-  c: { id: string; kind: CaseKind; status: CaseStatus },
+  c: { id: string; kind: CaseKind; status: CaseStatus; direct?: boolean },
   event: CaseEvent,
   actor: Actor,
   payload: Record<string, unknown> = {},
   patch: Record<string, unknown> = {},
 ): Promise<NextState> {
-  const next = nextState(c.kind, c.status, event, actor)
+  const next = nextState(c.kind, c.status, event, actor, { direct: c.direct })
   const ok = await store.updateCase(c.id, c.status, next, patch)
   if (!ok) throw new InvalidTransitionError(c.kind, c.status, event, 'case changed concurrently')
   const police = policeStatusFor(next.status)
