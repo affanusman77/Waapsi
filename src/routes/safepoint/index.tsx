@@ -9,6 +9,7 @@ import { HandoverChecklist } from '../../components/HandoverChecklist'
 import { Chat } from '../../components/Chat'
 import { ReunitedMoment } from '../../components/Reunited'
 import { Notice, PageHeader } from '../../components/ui'
+import { NearbyAlerts } from '../../components/NearbyAlerts'
 import { useI18n } from '../../i18n'
 import { callFn, errorKey } from '../../lib/api'
 import { supabase } from '../../lib/supabase'
@@ -74,6 +75,7 @@ function Desk() {
         lead={sp?.women_staff ? `♀ ${t('brand.womenDesk')} · ${t('sp.lead')}` : t('sp.lead')}
       />
       {loadError && <Notice tone="danger">{t('errors.network_error')}</Notice>}
+      <NearbyAlerts mode="sp" />
       {cases === null && !loadError && <div className="h-40 animate-pulse rounded-2xl bg-sand" aria-label={t('common.loading')} />}
 
       {cases && (

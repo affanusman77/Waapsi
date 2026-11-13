@@ -12,6 +12,7 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import { audit } from './audit.ts'
 import { haversineMeters } from './geo.ts'
 import { setting } from './settings.ts'
+import { buildAlerts, GEOFENCE_KM, geofenceMessage, safePointsWithin, type LostCaseLite, type SafePointLite } from './geofence.ts'
 import type { CaseStatus } from './state.ts'
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined
@@ -185,6 +186,7 @@ async function safePointName(admin: SupabaseClient, id: string | null): Promise<
 export async function notifyCaseCreated(admin: SupabaseClient, caseId: string): Promise<void> {
   const c = await loadCase(admin, caseId)
   if (!c || c.kind === 'checkin') return
+  if (c.kind === 'lost') await notifyGeofence(admin, caseId)
   const police = await policeNumbers(admin)
   if (!police.length) return
   const near = await nearLandmark(admin, c)
@@ -249,4 +251,35 @@ export async function notifyTransition(admin: SupabaseClient, caseId: string, to
   }
 
   await Promise.all(jobs)
+}
+
+/**
+ * Geofenced alert: a child is missing -> staff at every active safe point within 20 km of the
+ * last-seen point get a WhatsApp alert (no name, no photo, no exact location). Police already get
+ * every case. The public is never alerted. Always audited, so the control room sees who was told.
+ */
+export async function notifyGeofence(admin: SupabaseClient, caseId: string): Promise<void> {
+  const { data: c } = await admin.from('cases').select('id, kind, gender, age_est, clothing, lat, lng, seen_at, status, flags').eq('id', caseId).maybeSingle()
+  if (!c || c.kind !== 'lost' || c.lat === null || c.lng === null) return
+  const { data: points } = await admin.from('safe_points').select('id, name_en, name_ur, lat, lng').eq('active', true)
+  const inRange = safePointsWithin({ lat: c.lat, lng: c.lng }, (points ?? []) as SafePointLite[])
+  const [alert] = buildAlerts([c as LostCaseLite], (points ?? []) as SafePointLite[], null)
+  const body = alert ? geofenceMessage(alert) : null
+  let staff = 0
+  if (body) {
+    const jobs: Promise<unknown>[] = []
+    for (const sp of inRange) {
+      for (const to of await staffNumbers(admin, sp.id)) {
+        staff++
+        jobs.push(sendWhatsApp(admin, to, body, { template: 'sp.geofence_missing', caseId }))
+      }
+    }
+    await Promise.all(jobs)
+  }
+  await audit(admin, {
+    action: 'alert.geofence',
+    actor: { type: 'system' },
+    caseId,
+    payload: { radius_km: GEOFENCE_KM, safe_points: inRange.map((p) => p.name_en), staff_alerted: staff, public: false },
+  })
 }

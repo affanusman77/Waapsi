@@ -8,6 +8,7 @@ import { transition, type CaseEvent, type CaseKind, type CaseStatus } from '../_
 import { supabaseStore } from '../_shared/store.ts'
 import { inBackground, runMatching } from '../_shared/pipeline.ts'
 import { timeScale } from '../_shared/settings.ts'
+import { notifyCaseCreated, notifyLater } from '../_shared/whatsapp.ts'
 
 const ENABLED_EVENTS = new Set<CaseEvent>(['safe_point_chosen', 'safe_point_accepted', 'convert_to_lost', 'close_no_match'])
 
@@ -61,6 +62,8 @@ Deno.serve(
 
     // Accepted into custody / converted to a lost report -> look for matches now (R10).
     if (event === 'safe_point_accepted' || event === 'convert_to_lost') inBackground(runMatching(admin, c.id))
+    // A check-in turned into a missing report: alert verified responders within 20 km (+ police record).
+    if (event === 'convert_to_lost') notifyLater(notifyCaseCreated(admin, c.id))
     return json({ case: { id: c.id, ...next, safe_point_id: patch.safe_point_id ?? c.safe_point_id } })
   }),
 )

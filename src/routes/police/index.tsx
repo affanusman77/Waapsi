@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { ChevronDown, Eye, Siren } from 'lucide-react'
 import { Notice, PageHeader } from '../../components/ui'
+import { NearbyAlerts } from '../../components/NearbyAlerts'
 import { RequireRole, SignedInAs } from '../../components/RequireRole'
 import { StatusChip } from '../../components/CaseBits'
 import { useI18n } from '../../i18n'
@@ -48,6 +49,7 @@ function Records() {
   return (
     <>
       <PageHeader title={t('police.title')} lead={t('police.lead')} />
+      <div className="mb-6"><NearbyAlerts mode="police" /></div>
       {urgent > 0 && <div className="mb-4"><Notice tone="danger">{t('police.urgentCount', { n: urgent })}</Notice></div>}
       {error && <div className="mb-4"><Notice tone="danger">{t('errors.network_error')}</Notice></div>}
       {!cases && <div className="h-40 animate-pulse rounded-2xl bg-sand" aria-label={t('common.loading')} />}

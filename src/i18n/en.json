@@ -506,5 +506,19 @@
     "ageHeard": "AI heard: {n} years old.",
     "fixErrors": "Some details need fixing. Check the red messages above.",
     "looksRight": "Details are correct, continue"
+  },
+  "geofence": {
+    "title": "Missing children within {km} km ({n})",
+    "leadSp": "Verified responders only. If a child like this is brought to you, accept them and Wapsi will match the family.",
+    "leadPolice": "Every safe point within {km} km of the last-seen place has been alerted. The public is never alerted.",
+    "none": "No missing children reported within {km} km.",
+    "missing": "MISSING",
+    "child": "Child",
+    "under4": "Under 4",
+    "near": "Last seen near {place}",
+    "away": "{km} km from you",
+    "minAgo": "{n} min ago",
+    "hAgo": "{n} h ago",
+    "responders": "{n} safe points alerted"
   }
 }
