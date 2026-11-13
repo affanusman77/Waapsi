@@ -157,7 +157,8 @@
       "escalated": "Police have taken over the search. Matching continues.",
       "verifying": "The family is with the safe point staff now. They're checking everything.",
       "parentComing": "The family is on their way to {place}.",
-      "searching": "We're looking for the family"
+      "searching": "We're looking for the family",
+      "newReportNote": "This report keeps going. You can open it again from \"Your reports\"."
     },
     "card": {
       "title": "Check the details",

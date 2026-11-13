@@ -29,6 +29,7 @@ import { MatchReview } from '../../components/MatchReview'
 import { Chat } from '../../components/Chat'
 import { ReunitedMoment } from '../../components/Reunited'
 import { useFinderMatches } from '../../lib/useMatches'
+import { MyCases } from '../parent'
 
 const LocationPicker = lazy(() => import('../../components/LocationPicker').then((m) => ({ default: m.LocationPicker })))
 
@@ -234,6 +235,13 @@ function FinderFlow() {
     }
   }
 
+  /** Reopen an earlier report from the list (it keeps running on the server either way). */
+  function openCase(id: string) {
+    writeActiveCase(id)
+    setCaseId(id)
+    go('handover')
+  }
+
   function startOver() {
     writeActiveCase(null)
     setCaseId(null)
@@ -280,6 +288,11 @@ function FinderFlow() {
             <Button icon={<NextIcon className="size-6" aria-hidden />} onClick={() => go('voice')}>
               {t('common.next')}
             </Button>
+          )}
+          {!photo && (
+            <div className="pt-4">
+              <MyCases kinds={['found']} limit={5} onOpen={openCase} />
+            </div>
           )}
         </section>
       )}
@@ -440,7 +453,17 @@ function FinderFlow() {
         <ChooseSafePoint caseId={caseId} gender={gender} from={location} onChosen={() => go('handover')} />
       )}
 
-      {step === 'handover' && caseId && <Handover caseId={caseId} onDone={startOver} onChoose={() => go('safepoint')} />}
+      {step === 'handover' && caseId && (
+        <>
+          <Handover caseId={caseId} onChoose={() => go('safepoint')} />
+          <div className="mt-8 border-t border-sand-deep pt-5">
+            <Button variant="secondary" icon={<Hand className="size-6" aria-hidden />} onClick={startOver}>
+              {t('finder.handover.newReport')}
+            </Button>
+            <p className="mt-2 text-sm text-ink-soft">{t('finder.handover.newReportNote')}</p>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -562,7 +585,7 @@ function CardStep({ caseId, onNext }: { caseId: string; onNext: () => void }) {
   )
 }
 
-function Handover({ caseId, onDone, onChoose }: { caseId: string; onDone: () => void; onChoose: () => void }) {
+function Handover({ caseId, onChoose }: { caseId: string; onChoose: () => void }) {
   const { t, lang } = useI18n()
   const live = useLiveCase(caseId)
   const { state } = useSafePoints()
@@ -587,7 +610,6 @@ function Handover({ caseId, onDone, onChoose }: { caseId: string; onDone: () => 
       <section className="space-y-5">
         <ReunitedMoment fromIso={live.created_at} toIso={live.reunited_at} />
         <p className="text-center text-ink-soft">{t('finder.handover.reunitedThanks')}</p>
-        <Button variant="secondary" onClick={onDone}>{t('finder.handover.newReport')}</Button>
       </section>
     )
   }
@@ -596,7 +618,6 @@ function Handover({ caseId, onDone, onChoose }: { caseId: string; onDone: () => 
     return (
       <section className="space-y-5">
         <Notice tone="danger">{t('finder.handover.blocked')}</Notice>
-        <Button variant="secondary" onClick={onDone}>{t('finder.handover.newReport')}</Button>
       </section>
     )
   }

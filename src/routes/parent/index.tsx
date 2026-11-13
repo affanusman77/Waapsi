@@ -63,7 +63,7 @@ function ParentHome() {
   )
 }
 
-export function MyCases({ onOpen, kinds = ['lost', 'checkin'] }: { onOpen: (id: string) => void; kinds?: string[] }) {
+export function MyCases({ onOpen, kinds = ['lost', 'checkin'], limit = 20 }: { onOpen: (id: string) => void; kinds?: string[]; limit?: number }) {
   const { t } = useI18n()
   const { profile } = useSession()
   const [rows, setRows] = useState<CaseRow[] | null>(null)
@@ -77,9 +77,9 @@ export function MyCases({ onOpen, kinds = ['lost', 'checkin'] }: { onOpen: (id: 
       .eq('reporter_id', profile.id)
       .in('kind', key.split(','))
       .order('created_at', { ascending: false })
-      .limit(20)
+      .limit(limit)
     setRows((data as CaseRow[]) ?? [])
-  }, [profile, key])
+  }, [profile, key, limit])
 
   useEffect(() => {
     void load()
@@ -106,7 +106,7 @@ export function MyCases({ onOpen, kinds = ['lost', 'checkin'] }: { onOpen: (id: 
               className="flex min-h-16 w-full items-center gap-3 rounded-2xl border-2 border-sand-deep bg-sand p-3 text-start hover:bg-sand-deep"
             >
               <span className="flex-1">
-                <span className="block font-bold">{c.child_name ?? t('parent.yourChild')} <span className="font-mono text-sm text-ink-soft" dir="ltr">#{shortId(c.id)}</span></span>
+                <span className="block font-bold">{c.child_name ?? (c.kind === 'found' ? t('geofence.child') : t('parent.yourChild'))} <span className="font-mono text-sm text-ink-soft" dir="ltr">#{shortId(c.id)}</span></span>
                 <span className="text-sm text-ink-soft">{t(`parent.kind_${c.kind}`)} · {new Date(c.created_at).toLocaleString()}</span>
               </span>
               <ParentStatusChip status={c.status} kind={c.kind} />
