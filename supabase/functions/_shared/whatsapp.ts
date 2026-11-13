@@ -1,4 +1,4 @@
-// F3: WhatsApp alerts (Twilio WhatsApp API; the sandbox works for the demo).
+// F3: WhatsApp alerts (Meta WhatsApp Cloud API, or Twilio's WhatsApp API).
 //
 // Who gets what:
 //   police      : every new found/lost case, and every police status change until handover (R12)
@@ -7,7 +7,7 @@
 //
 // Rules: never a photo, never coordinates, phone numbers masked in the audit log (R8).
 // Fails open (R6): a WhatsApp error is logged and audited, it never blocks or undoes a case step.
-// Without TWILIO_* secrets every message is "simulated": written to the audit log only.
+// Without META_WA_* or TWILIO_* secrets every message is "simulated": written to the audit log only.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import { audit } from './audit.ts'
 import { haversineMeters } from './geo.ts'
@@ -18,8 +18,40 @@ declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined
 
 const env = (k: string) => Deno.env.get(k)?.trim() || undefined
 
+// Two providers. Meta's WhatsApp Cloud API is preferred (free test number, works in Pakistan, where
+// Twilio no longer offers trials); Twilio stays as an alternative. Neither set = simulated.
+const metaConfigured = () => !!(env('META_WA_TOKEN') && env('META_WA_PHONE_ID'))
+const twilioConfigured = () => !!(env('TWILIO_ACCOUNT_SID') && env('TWILIO_AUTH_TOKEN') && env('TWILIO_WHATSAPP_FROM'))
+
 export function whatsappConfigured(): boolean {
-  return !!(env('TWILIO_ACCOUNT_SID') && env('TWILIO_AUTH_TOKEN') && env('TWILIO_WHATSAPP_FROM'))
+  return metaConfigured() || twilioConfigured()
+}
+
+/** Meta WhatsApp Cloud API. Free-form text reaches people who messaged the business number in the last 24 h. */
+async function sendViaMeta(to: string, body: string): Promise<string | null> {
+  const version = env('META_WA_API_VERSION') ?? 'v23.0' // Meta upgrades retired versions automatically
+  const res = await fetch(`https://graph.facebook.com/${version}/${env('META_WA_PHONE_ID')}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env('META_WA_TOKEN')}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to: to.replace(/\D/g, ''), type: 'text', text: { preview_url: false, body } }),
+    signal: AbortSignal.timeout(8000),
+  })
+  return res.ok ? null : `meta ${res.status} ${(await res.text()).slice(0, 300)}`
+}
+
+async function sendViaTwilio(to: string, body: string): Promise<string | null> {
+  const sid = env('TWILIO_ACCOUNT_SID')!
+  const from = env('TWILIO_WHATSAPP_FROM')!
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Basic ' + btoa(`${sid}:${env('TWILIO_AUTH_TOKEN')}`),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({ From: from.startsWith('whatsapp:') ? from : `whatsapp:${from}`, To: `whatsapp:${to}`, Body: body }),
+    signal: AbortSignal.timeout(8000),
+  })
+  return res.ok ? null : `twilio ${res.status} ${(await res.text()).slice(0, 200)}`
 }
 
 function mask(phone: string): string {
@@ -37,25 +69,11 @@ export async function sendWhatsApp(
   let delivered = false
   let error: string | null = null
   const simulated = !whatsappConfigured()
+  const provider = metaConfigured() ? 'meta' : twilioConfigured() ? 'twilio' : null
   if (!simulated) {
     try {
-      const sid = env('TWILIO_ACCOUNT_SID')!
-      const from = env('TWILIO_WHATSAPP_FROM')!
-      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-        method: 'POST',
-        headers: {
-          Authorization: 'Basic ' + btoa(`${sid}:${env('TWILIO_AUTH_TOKEN')}`),
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          From: from.startsWith('whatsapp:') ? from : `whatsapp:${from}`,
-          To: `whatsapp:${to}`,
-          Body: body,
-        }),
-        signal: AbortSignal.timeout(8000),
-      })
-      delivered = res.ok
-      if (!res.ok) error = `${res.status} ${(await res.text()).slice(0, 200)}`
+      error = provider === 'meta' ? await sendViaMeta(to, body) : await sendViaTwilio(to, body)
+      delivered = !error
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     }
@@ -65,7 +83,7 @@ export async function sendWhatsApp(
     action: 'notify.whatsapp',
     actor: { type: 'system' },
     caseId: meta.caseId ?? null,
-    payload: { to: mask(to), template: meta.template, delivered, simulated, ...(error ? { error } : {}) },
+    payload: { to: mask(to), template: meta.template, provider, delivered, simulated, ...(error ? { error } : {}) },
   })
   return delivered
 }
